@@ -1,0 +1,42 @@
+# Python virtual environment
+venv/
+env/
+.venv/
+.env
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment variables
+.env.local
+.env.production
+
+# Logs
+*.log
+
+# Database files
+*.db
+*.sqlite3
+
+# Coverage reports
+htmlcov/
+.coverage
+.pytest_cache/ 
