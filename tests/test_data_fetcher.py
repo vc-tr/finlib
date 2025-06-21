@@ -2,6 +2,11 @@
 import pandas as pd
 import pytest
 import yfinance as yf
+import os
+import sys
+
+# Add the project root to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.data_fetcher_alpha import AlphaVantageDataFetcher
@@ -20,7 +25,7 @@ def test_yahoo_fetch_returns_dataframe(yahoo_fetcher):
 
 def test_yahoo_retry_logic(monkeypatch, yahoo_fetcher):
     calls = {"n": 0}
-    def fake_download(symbol, interval, period, progress):
+    def fake_download(symbol, interval, period, progress, auto_adjust=True, threads=True):
         calls["n"] += 1
         if calls["n"] < 2:
             raise RuntimeError("Rate limit simulated")

@@ -11,7 +11,8 @@ class YahooDataFetcher(DataFetcher):
 
     def fetch_ohlcv(self, symbol: str, interval: str, period: str = "5d") -> pd.DataFrame:
         """
-        Fetch via yfinance.download with basic retry on exception.
+        Fetch via yfinance.download with basic retry on exception,
+        flatten MultiIndex columns, rename to lowercase.
         """
         last_exc = None
         for attempt in range(1, self.max_retries + 1):
@@ -21,16 +22,27 @@ class YahooDataFetcher(DataFetcher):
                     interval=interval,
                     period=period,
                     progress=False,
+                    auto_adjust=False,        # explicit to avoid FutureWarning
+                    threads=False             # safer for small requests
                 )
-                # Rename to lowercase and drop Adj Close
+
+                # If MultiIndex (field, ticker), drop the ticker level:
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
+
+                # Rename to lowercase and drop any unwanted columns
                 df = df.rename(columns={
                     "Open": "open", "High": "high",
                     "Low": "low", "Close": "close",
                     "Volume": "volume"
                 })
+
+                # Return only the 5 fields we want
                 return df[["open", "high", "low", "close", "volume"]]
+
             except Exception as e:
                 last_exc = e
                 time.sleep(self.retry_delay)
+
         # If we get here, all retries failed
         raise last_exc
