@@ -16,3 +16,7 @@ torch>=2.0
 # Testing & linting
 pytest>=7.0
 flake8>=6.0
+
+# Statistical modeling and machine learning
+statsmodels>=0.14
+scikit-learn>=1.2
