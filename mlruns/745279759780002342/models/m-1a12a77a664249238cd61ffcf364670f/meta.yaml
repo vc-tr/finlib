@@ -1,0 +1,10 @@
+artifact_location: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/models/m-1a12a77a664249238cd61ffcf364670f/artifacts
+creation_timestamp: 1750709448152
+experiment_id: '745279759780002342'
+last_updated_timestamp: 1750709451354
+model_id: m-1a12a77a664249238cd61ffcf364670f
+model_type: null
+name: price_lstm_model
+source_run_id: 4f5e012178154c24bd4ab34c700618be
+status: 2
+status_message: null

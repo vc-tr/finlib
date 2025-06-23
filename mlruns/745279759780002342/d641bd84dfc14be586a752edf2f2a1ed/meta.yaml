@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/d641bd84dfc14be586a752edf2f2a1ed/artifacts
+end_time: 1750710185000
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: d641bd84dfc14be586a752edf2f2a1ed
+run_name: aged-mouse-495
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1750710178998
+status: 3
+tags: []
+user_id: victorvo
