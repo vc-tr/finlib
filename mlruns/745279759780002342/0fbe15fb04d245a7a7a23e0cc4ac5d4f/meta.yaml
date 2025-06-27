@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/0fbe15fb04d245a7a7a23e0cc4ac5d4f/artifacts
+end_time: 1751051650994
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: 0fbe15fb04d245a7a7a23e0cc4ac5d4f
+run_name: nebulous-horse-899
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1751051649947
+status: 4
+tags: []
+user_id: victorvo

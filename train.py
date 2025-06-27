@@ -5,25 +5,20 @@ import torch
 import numpy as np
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pandas as pd
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.models.lstm import PriceLSTM
 
-# train.py
-import mlflow, torch, torch.nn as nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-# …
-# old HYPERPARAMS   # max grad norm
-# (keep SEQ_LEN, BATCH_SIZE, HIDDEN_DIM, LR as before)
-# hyperparams
+# Hyperparameters
 SEQ_LEN = 30
 BATCH_SIZE = 64
 HIDDEN_DIM = 64
 LR = 1e-3
-EPOCHS     = 20
-PATIENCE   = 5       # early-stop patience
-CLIP_VALUE = 1.0  
+EPOCHS = 20
+PATIENCE = 5       # early-stop patience
+CLIP_VALUE = 1.0   # max grad norm
 
 def prepare_data(symbol="SPY"):
     fetcher = YahooDataFetcher(max_retries=1, retry_delay=0)
@@ -48,7 +43,11 @@ def prepare_data(symbol="SPY"):
     train_ds, val_ds = torch.utils.data.random_split(ds, [n_train, len(ds) - n_train])
     return train_ds, val_ds
 
-def train():
+def run_training(epochs=EPOCHS, patience=PATIENCE):
+    """
+    Extract training logic into a reusable function.
+    Returns dict of final metrics for easier testing and automation.
+    """
     # MLflow setup
     mlflow.set_experiment("quant-lstm-baseline")
     with mlflow.start_run():
@@ -58,6 +57,9 @@ def train():
             "batch_size": BATCH_SIZE,
             "hidden_dim": HIDDEN_DIM,
             "lr": LR,
+            "epochs": epochs,
+            "patience": patience,
+            "clip_value": CLIP_VALUE
         })
 
         # data
@@ -65,43 +67,77 @@ def train():
         train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
         val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE)
 
-        # model
+        # model, optimizer, scheduler, criterion
         model = PriceLSTM(input_dim=1, hidden_dim=HIDDEN_DIM)
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2, verbose=True)
         criterion = nn.MSELoss()
+        
+        # Early stopping variables
+        best_val = float("inf")
+        wait = 0
+        epochs_ran = 0
 
-        # one epoch
-        model.train()
-        total_loss = 0.0
-        for xb, yb in train_loader:
-            optimizer.zero_grad()
-            pred = model(xb)
-            loss = criterion(pred, yb)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item() * xb.size(0)
-        avg_loss = total_loss / len(train_loader.dataset)
-        mlflow.log_metric("train_loss", avg_loss)
-
-        # validation loss
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for xb, yb in val_loader:
+        # Training loop with multiple epochs
+        for epoch in range(1, epochs + 1):
+            epochs_ran = epoch
+            
+            # — Train —
+            model.train()
+            train_loss = 0
+            for xb, yb in train_loader:
+                optimizer.zero_grad()
                 pred = model(xb)
-                val_loss += criterion(pred, yb).item() * xb.size(0)
-        val_loss /= len(val_loader.dataset)
-        mlflow.log_metric("val_loss", val_loss)
+                loss = criterion(pred, yb)
+                loss.backward()
+                # Gradient clipping
+                nn.utils.clip_grad_norm_(model.parameters(), CLIP_VALUE)
+                optimizer.step()
+                train_loss += loss.item() * xb.size(0)
+            train_loss /= len(train_loader.dataset)
+            mlflow.log_metric("train_loss", train_loss, step=epoch)
+            
+            # — Validate —
+            model.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for xb, yb in val_loader:
+                    pred = model(xb)
+                    val_loss += criterion(pred, yb).item() * xb.size(0)
+            val_loss /= len(val_loader.dataset)
+            mlflow.log_metric("val_loss", val_loss, step=epoch)
+            
+            # — Scheduler & early-stop —
+            scheduler.step(val_loss)
+            current_lr = optimizer.param_groups[0]["lr"]
+            mlflow.log_metric("lr", current_lr, step=epoch)
+            
+            if val_loss < best_val:
+                best_val = val_loss
+                wait = 0
+                # Save the best checkpoint
+                sample_input = torch.randn(1, SEQ_LEN, 1)
+                mlflow.pytorch.log_model(
+                    model, 
+                    "best_model",
+                    input_example=sample_input.numpy()
+                )
+            else:
+                wait += 1
+                if wait >= patience:
+                    print(f"Early stopping at epoch {epoch}")
+                    break
+            
+            print(f"Epoch {epoch:02d} | train {train_loss:.6f} | val {val_loss:.6f} | lr {current_lr:.2e}")
 
-        # Save model artifact with proper signature to avoid warnings
-        sample_input = torch.randn(1, SEQ_LEN, 1)
-        mlflow.pytorch.log_model(
-            model, 
-            "price_lstm_model",
-            input_example=sample_input.numpy()  # Convert to numpy for MLflow
-        )
-
-        print(f"Train Loss: {avg_loss:.6f}  Val Loss: {val_loss:.6f}")
+        print(f"Training completed. Best validation loss: {best_val:.6f}")
+        
+        # Return dict of final metrics
+        return {
+            "best_val_loss": best_val,
+            "epochs_ran": epochs_ran
+        }
 
 if __name__ == "__main__":
-    train()
+    result = run_training()
+    print("Done:", result)
