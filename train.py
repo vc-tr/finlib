@@ -10,12 +10,20 @@ from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.models.lstm import PriceLSTM
 
+# train.py
+import mlflow, torch, torch.nn as nn
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+# …
+# old HYPERPARAMS   # max grad norm
+# (keep SEQ_LEN, BATCH_SIZE, HIDDEN_DIM, LR as before)
 # hyperparams
 SEQ_LEN = 30
 BATCH_SIZE = 64
 HIDDEN_DIM = 64
 LR = 1e-3
-EPOCHS = 1
+EPOCHS     = 20
+PATIENCE   = 5       # early-stop patience
+CLIP_VALUE = 1.0  
 
 def prepare_data(symbol="SPY"):
     fetcher = YahooDataFetcher(max_retries=1, retry_delay=0)
