@@ -11,7 +11,14 @@ Tasks:
 	2.	For each, extract:
 	•	Model architecture (layers, hidden sizes, bidirectional/attention choices)
 
-		What is LSTM neural network:
+	•	Training tricks (schedulers, clipping, early-stop settings)
+	•	Report any pitfalls (data leakage, overfitting warnings).
+
+
+
+-------------------------------------------------------------------------------------------
+
+What is LSTM neural network:
 
 			https://www.youtube.com/watch?v=akDoKV9-1HM
 			- Long short-term memory
@@ -24,7 +31,3 @@ Tasks:
 			- 2 path:Long-term memory and short-term memory
 			- Use sigmoid (e^x / 1+ e^x) (0 <y< 1): Percent to remember and tanh activation functions (e^x - e^-x / e^x + e^-x) (-1 < y < 1): Potential memory
 			- 3 stage
-
-
-	•	Training tricks (schedulers, clipping, early-stop settings)
-	•	Report any pitfalls (data leakage, overfitting warnings).

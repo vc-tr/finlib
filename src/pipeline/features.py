@@ -46,11 +46,24 @@ class TechnicalIndicators:
         Returns:
             pd.Series: RSI values
         """
-        # TODO: Implement RSI calculation
-        # Formula: RSI = 100 - (100 / (1 + RS))
-        # where RS = Average Gain / Average Loss over the period
-        # Use exponential moving average for smoothing
-        pass
+        close = self.data['close']
+        delta = close.diff()
+        
+        # Separate gains and losses
+        gains = delta.where(delta > 0, 0)
+        losses = -delta.where(delta < 0, 0)
+        
+        # Calculate exponential moving averages of gains and losses
+        avg_gains = gains.ewm(span=period, adjust=False).mean()
+        avg_losses = losses.ewm(span=period, adjust=False).mean()
+        
+        # Calculate Relative Strength (RS), handling division by zero
+        rs = avg_gains / avg_losses.replace(0, np.nan)
+        
+        # Calculate RSI
+        rsi = 100 - (100 / (1 + rs))
+        
+        return rsi
     
     def calculate_bollinger_bands(self, period: int = 20, std_dev: float = 2.0) -> Dict[str, pd.Series]:
         """
@@ -68,11 +81,23 @@ class TechnicalIndicators:
         Returns:
             Dict containing 'upper', 'middle', 'lower' bands
         """
-        # TODO: Implement Bollinger Bands calculation
-        # 1. Calculate simple moving average (middle band)
-        # 2. Calculate rolling standard deviation
-        # 3. Calculate upper and lower bands
-        pass
+        close = self.data['close']
+        
+        # Calculate middle band (Simple Moving Average)
+        middle = close.rolling(window=period).mean()
+        
+        # Calculate rolling standard deviation
+        std = close.rolling(window=period).std()
+        
+        # Calculate upper and lower bands
+        upper = middle + (std_dev * std)
+        lower = middle - (std_dev * std)
+        
+        return {
+            'upper': upper,
+            'middle': middle,
+            'lower': lower
+        }
     
     def calculate_macd(self, fast_period: int = 12, slow_period: int = 26, signal_period: int = 9) -> Dict[str, pd.Series]:
         """
@@ -91,13 +116,26 @@ class TechnicalIndicators:
         Returns:
             Dict containing 'macd', 'signal', 'histogram'
         """
-        # TODO: Implement MACD calculation
-        # 1. Calculate fast EMA (12-period)
-        # 2. Calculate slow EMA (26-period)
-        # 3. Calculate MACD line (fast EMA - slow EMA)
-        # 4. Calculate signal line (9-period EMA of MACD)
-        # 5. Calculate histogram (MACD - signal)
-        pass
+        close_series = self.data['close']
+        
+        # Calculate fast and slow EMAs
+        fast_ema = exponential_moving_average(close_series, fast_period)
+        slow_ema = exponential_moving_average(close_series, slow_period)
+        
+        # Calculate MACD line
+        macd_line = fast_ema - slow_ema
+        
+        # Calculate signal line (EMA of MACD)
+        signal_line = exponential_moving_average(macd_line, signal_period)
+        
+        # Calculate histogram
+        histogram = macd_line - signal_line
+        
+        return {
+            'macd': macd_line,
+            'signal': signal_line,
+            'histogram': histogram
+        }
     
     def calculate_vwap(self) -> pd.Series:
         """
@@ -111,13 +149,20 @@ class TechnicalIndicators:
         Returns:
             pd.Series: VWAP values
         """
-        # TODO: Implement VWAP calculation
-        # 1. Calculate typical price: (high + low + close) / 3
-        # 2. Calculate price * volume
-        # 3. Calculate cumulative sum of (price * volume)
-        # 4. Calculate cumulative sum of volume
-        # 5. VWAP = cumulative (price * volume) / cumulative volume
-        pass
+        # Calculate typical price
+        typical_price = (self.data['high'] + self.data['low'] + self.data['close']) / 3
+        
+        # Calculate price * volume
+        pv = typical_price * self.data['volume']
+        
+        # Calculate cumulative sums
+        cumulative_pv = pv.cumsum()
+        cumulative_volume = self.data['volume'].cumsum()
+        
+        # Calculate VWAP, avoiding division by zero
+        vwap = cumulative_pv / cumulative_volume.replace(0, np.nan)
+        
+        return vwap.ffill()
     
     def calculate_all_features(self) -> pd.DataFrame:
         """
@@ -128,17 +173,23 @@ class TechnicalIndicators:
         """
         features_df = self.data.copy()
         
-        # TODO: Call all indicator methods and add to features_df
-        # features_df['rsi'] = self.calculate_rsi()
-        # bollinger = self.calculate_bollinger_bands()
-        # features_df['bb_upper'] = bollinger['upper']
-        # features_df['bb_middle'] = bollinger['middle']
-        # features_df['bb_lower'] = bollinger['lower']
-        # macd = self.calculate_macd()
-        # features_df['macd'] = macd['macd']
-        # features_df['macd_signal'] = macd['signal']
-        # features_df['macd_histogram'] = macd['histogram']
-        # features_df['vwap'] = self.calculate_vwap()
+        # Calculate RSI
+        features_df['rsi'] = self.calculate_rsi()
+        
+        # Calculate Bollinger Bands
+        bollinger = self.calculate_bollinger_bands()
+        features_df['bb_upper'] = bollinger['upper']
+        features_df['bb_middle'] = bollinger['middle']
+        features_df['bb_lower'] = bollinger['lower']
+        
+        # Calculate MACD
+        macd = self.calculate_macd()
+        features_df['macd'] = macd['macd']
+        features_df['macd_signal'] = macd['signal']
+        features_df['macd_histogram'] = macd['histogram']
+        
+        # Calculate VWAP
+        features_df['vwap'] = self.calculate_vwap()
         
         return features_df
 
@@ -169,9 +220,7 @@ def exponential_moving_average(series: pd.Series, period: int) -> pd.Series:
     Returns:
         pd.Series: EMA values
     """
-    # TODO: Implement EMA calculation
-    # EMA = (Close - EMA_previous) * (2 / (period + 1)) + EMA_previous
-    pass
+    return series.ewm(span=period, adjust=False).mean()
 
 
 def simple_moving_average(series: pd.Series, period: int) -> pd.Series:
@@ -185,6 +234,4 @@ def simple_moving_average(series: pd.Series, period: int) -> pd.Series:
     Returns:
         pd.Series: SMA values
     """
-    # TODO: Implement SMA calculation
-    # SMA = sum of values over period / period
-    pass
+    return series.rolling(window=period).mean()
