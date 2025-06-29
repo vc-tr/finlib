@@ -28,6 +28,7 @@ Improving Stock Price Prediction using Linear Regression and Long Short-Term Mem
 ---
 Extra sources:
 - https://www.academia.edu/34764533/A_hybrid_stock_trading_system_using_genetic_network_programming_and_mean_conditional_value_at_risk#loswp-work-container
+- https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3599957.3606240
 - https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3694860.3694870
 - https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3700058.3700075
 
