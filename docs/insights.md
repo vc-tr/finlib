@@ -53,8 +53,9 @@
 
 ### Papers for Further Analysis
 - [A hybrid stock trading system using genetic network programming and mean conditional value at risk](https://www.academia.edu/34764533/A_hybrid_stock_trading_system_using_genetic_network_programming_and_mean_conditional_value_at_risk#loswp-work-container)
-- [ACM Paper 1](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3694860.3694870)
-- [ACM Paper 2](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3700058.3700075)
+- [ACM Paper 1](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3599957.3606240)
+- [ACM Paper 2](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3694860.3694870)
+- [ACM Paper 3](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3700058.3700075)
 
 ### Notes
 - Complete architecture details for Paper 1 pending full paper review
