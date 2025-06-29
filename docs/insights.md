@@ -57,9 +57,6 @@
 - [ACM Paper 2](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3694860.3694870)
 - [ACM Paper 3](https://dl-acm-org.silk.library.umass.edu/doi/pdf/10.1145/3700058.3700075)
 
-### Notes
-- Complete architecture details for Paper 1 pending full paper review
-- Second paper analysis slot available for additional research
 
 
 
