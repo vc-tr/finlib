@@ -20,3 +20,10 @@ flake8>=6.0
 # Statistical modeling and machine learning
 statsmodels>=0.14
 scikit-learn>=1.2
+
+# Jupyter for local development
+jupyter>=1.0.0
+jupyterlab>=3.6.0
+ipykernel>=6.0
+nbconvert>=7.0
+seaborn>=0.11
