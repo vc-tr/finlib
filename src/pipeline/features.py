@@ -32,6 +32,12 @@ class TechnicalIndicators:
         """
         self.data = data.copy()
         
+        # Pre-extract commonly used series for efficiency
+        self.close = pd.Series(self.data['close'])
+        self.high = pd.Series(self.data['high'])
+        self.low = pd.Series(self.data['low'])
+        self.volume = pd.Series(self.data['volume'])
+        
     def calculate_rsi(self, period: int = 14) -> pd.Series:
         """
         Calculate Relative Strength Index (RSI).
@@ -46,8 +52,7 @@ class TechnicalIndicators:
         Returns:
             pd.Series: RSI values
         """
-        close = self.data['close']
-        delta = close.diff()
+        delta = self.close.diff()
         
         # Separate gains and losses
         gains = delta.where(delta > 0, 0)
@@ -81,13 +86,11 @@ class TechnicalIndicators:
         Returns:
             Dict containing 'upper', 'middle', 'lower' bands
         """
-        close = self.data['close']
-        
         # Calculate middle band (Simple Moving Average)
-        middle = close.rolling(window=period).mean()
+        middle = self.close.rolling(window=period).mean()
         
         # Calculate rolling standard deviation
-        std = close.rolling(window=period).std()
+        std = self.close.rolling(window=period).std()
         
         # Calculate upper and lower bands
         upper = middle + (std_dev * std)
@@ -116,11 +119,9 @@ class TechnicalIndicators:
         Returns:
             Dict containing 'macd', 'signal', 'histogram'
         """
-        close_series = self.data['close']
-        
         # Calculate fast and slow EMAs
-        fast_ema = exponential_moving_average(close_series, fast_period)
-        slow_ema = exponential_moving_average(close_series, slow_period)
+        fast_ema = exponential_moving_average(self.close, fast_period)
+        slow_ema = exponential_moving_average(self.close, slow_period)
         
         # Calculate MACD line
         macd_line = fast_ema - slow_ema
@@ -150,14 +151,14 @@ class TechnicalIndicators:
             pd.Series: VWAP values
         """
         # Calculate typical price
-        typical_price = (self.data['high'] + self.data['low'] + self.data['close']) / 3
+        typical_price = (self.high + self.low + self.close) / 3
         
         # Calculate price * volume
-        pv = typical_price * self.data['volume']
+        pv = typical_price * self.volume
         
         # Calculate cumulative sums
         cumulative_pv = pv.cumsum()
-        cumulative_volume = self.data['volume'].cumsum()
+        cumulative_volume = self.volume.cumsum()
         
         # Calculate VWAP, avoiding division by zero
         vwap = cumulative_pv / cumulative_volume.replace(0, np.nan)
