@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/7f8f19ad986e48298e087f6379e406e5/artifacts
+end_time: 1753054172898
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: 7f8f19ad986e48298e087f6379e406e5
+run_name: classy-ray-108
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753054163982
+status: 3
+tags: []
+user_id: victorvo

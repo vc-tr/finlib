@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import pandas as pd
+import argparse
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.models.lstm import PriceLSTM
@@ -19,6 +20,32 @@ LR = 1e-3
 EPOCHS = 20
 PATIENCE = 5       # early-stop patience
 CLIP_VALUE = 1.0   # max grad norm
+
+
+def get_loss_function(loss_name: str) -> nn.Module:
+    """
+    Get loss function based on name.
+    
+    Args:
+        loss_name: Name of loss function ('mse', 'mae', 'huber')
+        
+    Returns:
+        PyTorch loss function
+        
+    Raises:
+        ValueError: If loss_name is not supported
+    """
+    loss_functions = {
+        'mse': nn.MSELoss(),
+        'mae': nn.L1Loss(),
+        'huber': nn.SmoothL1Loss(beta=1.0)
+    }
+    
+    if loss_name not in loss_functions:
+        raise ValueError(f"Unsupported loss function: {loss_name}. "
+                        f"Supported options: {list(loss_functions.keys())}")
+    
+    return loss_functions[loss_name]
 
 def prepare_data(symbol="SPY"):
     fetcher = YahooDataFetcher(max_retries=1, retry_delay=0)
@@ -43,10 +70,15 @@ def prepare_data(symbol="SPY"):
     train_ds, val_ds = torch.utils.data.random_split(ds, [n_train, len(ds) - n_train])
     return train_ds, val_ds
 
-def run_training(epochs=EPOCHS, patience=PATIENCE):
+def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
     """
     Extract training logic into a reusable function.
     Returns dict of final metrics for easier testing and automation.
+    
+    Args:
+        epochs: Number of training epochs
+        patience: Early stopping patience
+        loss_name: Loss function name ('mse', 'mae', 'huber')
     """
     # MLflow setup
     mlflow.set_experiment("quant-lstm-baseline")
@@ -59,7 +91,8 @@ def run_training(epochs=EPOCHS, patience=PATIENCE):
             "lr": LR,
             "epochs": epochs,
             "patience": patience,
-            "clip_value": CLIP_VALUE
+            "clip_value": CLIP_VALUE,
+            "loss_function": loss_name
         })
 
         # data
@@ -70,8 +103,8 @@ def run_training(epochs=EPOCHS, patience=PATIENCE):
         # model, optimizer, scheduler, criterion
         model = PriceLSTM(input_dim=1, hidden_dim=HIDDEN_DIM)
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2, verbose=True)
-        criterion = nn.MSELoss()
+        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2)
+        criterion = get_loss_function(loss_name)
         
         # Early stopping variables
         best_val = float("inf")
@@ -139,5 +172,19 @@ def run_training(epochs=EPOCHS, patience=PATIENCE):
         }
 
 if __name__ == "__main__":
-    result = run_training()
-    print("Done:", result)
+    parser = argparse.ArgumentParser(description='Train LSTM model for time series forecasting')
+    parser.add_argument('--loss', type=str, default='mse', 
+                       choices=['mse', 'mae', 'huber'],
+                       help='Loss function to use (default: mse)')
+    parser.add_argument('--epochs', type=int, default=EPOCHS,
+                       help=f'Number of training epochs (default: {EPOCHS})')
+    parser.add_argument('--patience', type=int, default=PATIENCE,
+                       help=f'Early stopping patience (default: {PATIENCE})')
+    
+    args = parser.parse_args()
+    
+    print(f"🚀 Starting training with {args.loss.upper()} loss function...")
+    print(f"📊 Configuration: {args.epochs} epochs, patience={args.patience}")
+    
+    result = run_training(epochs=args.epochs, patience=args.patience, loss_name=args.loss)
+    print("✅ Training completed:", result)

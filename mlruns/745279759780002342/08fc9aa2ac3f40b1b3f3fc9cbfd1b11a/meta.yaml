@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/08fc9aa2ac3f40b1b3f3fc9cbfd1b11a/artifacts
+end_time: 1753053931270
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: 08fc9aa2ac3f40b1b3f3fc9cbfd1b11a
+run_name: resilient-horse-816
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753053921262
+status: 3
+tags: []
+user_id: victorvo

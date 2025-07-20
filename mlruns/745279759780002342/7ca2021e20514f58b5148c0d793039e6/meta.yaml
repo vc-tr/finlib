@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/7ca2021e20514f58b5148c0d793039e6/artifacts
+end_time: 1753054177752
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: 7ca2021e20514f58b5148c0d793039e6
+run_name: enchanting-ant-478
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753054172916
+status: 3
+tags: []
+user_id: victorvo

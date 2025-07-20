@@ -1,0 +1,14 @@
+artifact_uri: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/4e9f7dcbb37e4e82bb7877368aa02c04/artifacts
+end_time: 1753053976890
+entry_point_name: ''
+experiment_id: '745279759780002342'
+lifecycle_stage: active
+run_id: 4e9f7dcbb37e4e82bb7877368aa02c04
+run_name: wistful-skunk-169
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1753053970764
+status: 3
+tags: []
+user_id: victorvo
