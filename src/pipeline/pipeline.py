@@ -15,6 +15,10 @@ def reindex_and_backfill(df: pd.DataFrame) -> pd.DataFrame:
 
     # 2. reindex
     df_full = df.reindex(full_idx)
+    
+    # After reindexing, filter for regular hours (09:30–16:00, Monday–Friday), will uncommented later
+    #df_full = df_full.between_time("09:30", "16:00")
+    #df_full = df_full[df_full.index.dayofweek < 5]  # 0=Monday, 4=Friday
 
     # 3. ffill OHLC
     for col in ["open", "high", "low", "close"]:
@@ -23,7 +27,7 @@ def reindex_and_backfill(df: pd.DataFrame) -> pd.DataFrame:
     # 4. zero-fill volume
     df_full["volume"] = df_full["volume"].fillna(0)
 
-    # 5. drop head NaNs if any
+    # 4. drop head NaNs if any
     df_clean = df_full.dropna()
 
     # restore name

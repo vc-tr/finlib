@@ -9,40 +9,55 @@ class PriceLSTM(nn.Module):
         num_layers: int = 2,
         bidirectional: bool = False,
         dropout: float = 0.1,
+        layer_norm: bool = False,
         use_attention: bool = False,
     ):
         super().__init__()
-        self.use_attention = use_attention
-        self.hidden_dim = hidden_dim
+        self.bidirectional = bidirectional
         self.num_directions = 2 if bidirectional else 1
+        self.hidden_dim = hidden_dim
 
-        # PyTorch LSTM dropout only works with num_layers > 1
-        lstm_dropout = dropout if num_layers > 1 else 0.0
-        
+        # LSTM block
         self.lstm = nn.LSTM(
-            input_dim,
-            hidden_dim,
+            input_size=input_dim,
+            hidden_size=hidden_dim,
             num_layers=num_layers,
             batch_first=True,
-            dropout=lstm_dropout,
+            dropout=dropout if num_layers>1 else 0.0,
             bidirectional=bidirectional,
         )
+
+        # Optional layer-norm after LSTM outputs
+        if layer_norm:
+            self.layer_norm = nn.LayerNorm(self.num_directions * hidden_dim)
+        else:
+            self.layer_norm = None
+
+        # Optional attention: learnable query
+        self.use_attention = use_attention
         if use_attention:
-            # simple self-attention: learnable query vector
             self.attn_q = nn.Parameter(torch.randn(self.num_directions * hidden_dim))
+
+        # Final head
         self.head = nn.Linear(self.num_directions * hidden_dim, 1)
 
-    def forward(self, x):
-        # x: (batch, seq_len, input_dim)
-        out, _ = self.lstm(x)  # out: (batch, seq_len, hidden_dim * num_directions)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x: (batch, seq_len, input_dim)
+        returns: (batch, 1)
+        """
+        out, _ = self.lstm(x)  # → (batch, seq_len, hidden_dim * num_directions)
+        if self.layer_norm:
+            # apply layernorm per time step
+            out = self.layer_norm(out)
+
         if self.use_attention:
-            # compute attention weights
             # out @ q → (batch, seq_len)
             scores = torch.matmul(out, self.attn_q)
-            weights = torch.softmax(scores, dim=1).unsqueeze(-1)  # (batch, seq_len,1)
-            # weighted sum
-            context = (out * weights).sum(dim=1)  # (batch, hidden_dim * num_directions)
+            weights = torch.softmax(scores, dim=1).unsqueeze(-1)  # (batch, seq_len, 1)
+            context = (out * weights).sum(dim=1)                 # (batch, hidden_dim * num_directions)
         else:
-            # take last time-step
+            # take the last time step
             context = out[:, -1, :]
+
         return self.head(context)

@@ -19,7 +19,7 @@ def main():
     elapsed = time.time() - start
 
     print(f"Cleaned bars: {len(df_clean)}")
-    print(f"reindex_and_backfill took {elapsed:.3f} seconds")
+    print(f"reindex_and_backfill took {elapsed:.5f} seconds")
 
 if __name__ == "__main__":
     main()
