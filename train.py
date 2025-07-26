@@ -180,11 +180,24 @@ if __name__ == "__main__":
                        help=f'Number of training epochs (default: {EPOCHS})')
     parser.add_argument('--patience', type=int, default=PATIENCE,
                        help=f'Early stopping patience (default: {PATIENCE})')
-    
+    parser.add_argument("--model_type", type=str, default="lstm",
+                       choices=["lstm","bilstm","gru"], help="Which RNN variant")
     args = parser.parse_args()
     
-    print(f"🚀 Starting training with {args.loss.upper()} loss function...")
-    print(f"📊 Configuration: {args.epochs} epochs, patience={args.patience}")
+        # choose model
+    ModelCls = get_model_class(args.model_type)
+    model = ModelCls(
+        input_dim=1,
+        hidden_dim=args.hidden_dim,
+        num_layers=args.num_layers,
+        bidirectional=(args.model_type=="bilstm"),
+        dropout=args.dropout,
+        layer_norm=args.layer_norm,
+        use_attention=args.use_attention,
+    )
+    
+    print(f"Starting training with {args.loss.upper()} loss function...")
+    print(f"Configuration: {args.epochs} epochs, patience={args.patience}")
     
     result = run_training(epochs=args.epochs, patience=args.patience, loss_name=args.loss)
-    print("✅ Training completed:", result)
+    print("Training completed:", result)
