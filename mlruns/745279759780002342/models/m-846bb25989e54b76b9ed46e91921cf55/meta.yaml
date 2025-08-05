@@ -1,0 +1,10 @@
+artifact_location: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342/models/m-846bb25989e54b76b9ed46e91921cf55/artifacts
+creation_timestamp: 1754355974603
+experiment_id: '745279759780002342'
+last_updated_timestamp: 1754355976986
+model_id: m-846bb25989e54b76b9ed46e91921cf55
+model_type: null
+name: best_model
+source_run_id: a9e53d1a49e44cb6bb8f9514bd1b14c7
+status: 2
+status_message: null

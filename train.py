@@ -11,6 +11,7 @@ import argparse
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.models.lstm import PriceLSTM
+from torch.utils.tensorboard import SummaryWriter
 
 # Hyperparameters
 SEQ_LEN = 30
@@ -83,8 +84,12 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
     # MLflow setup
     mlflow.set_experiment("quant-lstm-baseline")
     with mlflow.start_run():
-        # log hyperparams
-        mlflow.log_params({
+        # TensorBoard setup
+        from datetime import datetime
+        tb = SummaryWriter(f"runs/exp_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        
+        # Create hyperparams dict for TensorBoard
+        hparams = {
             "seq_len": SEQ_LEN,
             "batch_size": BATCH_SIZE,
             "hidden_dim": HIDDEN_DIM,
@@ -93,7 +98,11 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
             "patience": patience,
             "clip_value": CLIP_VALUE,
             "loss_function": loss_name
-        })
+        }
+        tb.add_hparams(hparams, {})  # log hyperparams
+        
+        # log hyperparams
+        mlflow.log_params(hparams)
 
         # data
         train_ds, val_ds = prepare_data()
@@ -145,6 +154,18 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
             current_lr = optimizer.param_groups[0]["lr"]
             mlflow.log_metric("lr", current_lr, step=epoch)
             
+            # TensorBoard logging
+            tb.add_scalar("Loss/train", train_loss, epoch)
+            tb.add_scalar("Loss/val", val_loss, epoch)
+            tb.add_scalar("LR", current_lr, epoch)
+            
+            # Every few epochs, log weight histograms
+            if epoch % 5 == 0:
+                for name, param in model.named_parameters():
+                    tb.add_histogram(name, param, epoch)
+                    if param.grad is not None:
+                        tb.add_histogram(f"{name}.grad", param.grad, epoch)
+            
             if val_loss < best_val:
                 best_val = val_loss
                 wait = 0
@@ -165,6 +186,9 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
 
         print(f"Training completed. Best validation loss: {best_val:.6f}")
         
+        # Close TensorBoard writer
+        tb.close()
+        
         # Return dict of final metrics
         return {
             "best_val_loss": best_val,
@@ -183,18 +207,6 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str, default="lstm",
                        choices=["lstm","bilstm","gru"], help="Which RNN variant")
     args = parser.parse_args()
-    
-        # choose model
-    ModelCls = get_model_class(args.model_type)
-    model = ModelCls(
-        input_dim=1,
-        hidden_dim=args.hidden_dim,
-        num_layers=args.num_layers,
-        bidirectional=(args.model_type=="bilstm"),
-        dropout=args.dropout,
-        layer_norm=args.layer_norm,
-        use_attention=args.use_attention,
-    )
     
     print(f"Starting training with {args.loss.upper()} loss function...")
     print(f"Configuration: {args.epochs} epochs, patience={args.patience}")

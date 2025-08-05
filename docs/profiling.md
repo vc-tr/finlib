@@ -1,0 +1,1 @@
+#Todo: Update this file with recommended num_workers and pin_memory settings and the GPU/CPU timing comparison.
