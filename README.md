@@ -214,6 +214,16 @@ print(mc.price("european", "call"))
 
 ---
 
+## Trading Platform Integration
+
+To connect strategies to paper or live trading, see **[docs/INTEGRATION.md](docs/INTEGRATION.md)** for:
+
+- **Alpaca** (recommended): Free paper + live, commission-free, Python SDK
+- **Tradier**: Free sandbox, stocks & options
+- **Interactive Brokers**: Paper account, global markets
+
+---
+
 ## Configuration
 
 Key hyperparameters in `train.py`:
