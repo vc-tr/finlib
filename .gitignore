@@ -29,8 +29,12 @@ Thumbs.db
 .env.local
 .env.production
 
-# Logs
+# Logs and experiment artifacts
 *.log
+runs/
+mlruns/
+figures/
+data/*.csv
 
 # Database files
 *.db

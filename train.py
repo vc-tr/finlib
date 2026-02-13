@@ -10,7 +10,7 @@ import pandas as pd
 import argparse
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
-from src.models.lstm import PriceLSTM
+from src.models.factory import create_model
 from torch.utils.tensorboard import SummaryWriter
 
 # Hyperparameters
@@ -71,7 +71,7 @@ def prepare_data(symbol="SPY"):
     train_ds, val_ds = torch.utils.data.random_split(ds, [n_train, len(ds) - n_train])
     return train_ds, val_ds
 
-def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
+def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse', model_type='lstm'):
     """
     Extract training logic into a reusable function.
     Returns dict of final metrics for easier testing and automation.
@@ -97,7 +97,8 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
             "epochs": epochs,
             "patience": patience,
             "clip_value": CLIP_VALUE,
-            "loss_function": loss_name
+            "loss_function": loss_name,
+            "model_type": model_type,
         }
         tb.add_hparams(hparams, {})  # log hyperparams
         
@@ -110,7 +111,7 @@ def run_training(epochs=EPOCHS, patience=PATIENCE, loss_name='mse'):
         val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE)
 
         # model, optimizer, scheduler, criterion
-        model = PriceLSTM(input_dim=1, hidden_dim=HIDDEN_DIM)
+        model = create_model(model_type, input_dim=1, hidden_dim=HIDDEN_DIM)
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
         scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2)
         criterion = get_loss_function(loss_name)
@@ -205,11 +206,17 @@ if __name__ == "__main__":
     parser.add_argument('--patience', type=int, default=PATIENCE,
                        help=f'Early stopping patience (default: {PATIENCE})')
     parser.add_argument("--model_type", type=str, default="lstm",
-                       choices=["lstm","bilstm","gru"], help="Which RNN variant")
+                       choices=["lstm", "bilstm", "gru", "transformer", "tcn"],
+                       help="Model architecture")
     args = parser.parse_args()
     
-    print(f"Starting training with {args.loss.upper()} loss function...")
+    print(f"Starting training with {args.loss.upper()} loss, model={args.model_type}")
     print(f"Configuration: {args.epochs} epochs, patience={args.patience}")
     
-    result = run_training(epochs=args.epochs, patience=args.patience, loss_name=args.loss)
+    result = run_training(
+        epochs=args.epochs,
+        patience=args.patience,
+        loss_name=args.loss,
+        model_type=args.model_type,
+    )
     print("Training completed:", result)

@@ -1,6 +1,0 @@
-artifact_location: file:///Users/victorvo/Documents/quant-forecast/mlruns/745279759780002342
-creation_time: 1750709444934
-experiment_id: '745279759780002342'
-last_update_time: 1750709444934
-lifecycle_stage: active
-name: quant-lstm-baseline

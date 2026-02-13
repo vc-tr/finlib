@@ -2,9 +2,7 @@
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.arima.model import ARIMA
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 
 def persistence_forecast(series: pd.Series) -> pd.Series:
     """
