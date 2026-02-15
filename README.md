@@ -7,10 +7,13 @@ A comprehensive quantitative finance research and trading framework with multipl
 This project provides:
 
 - **Option pricing**: Black-Scholes, Monte Carlo simulation
-- **Stochastic models**: Brownian motion, Geometric Brownian Motion (GBM), Ornstein-Uhlenbeck
+- **Stochastic models**: Brownian motion, GBM, Ornstein-Uhlenbeck
 - **Statistical strategies**: Mean reversion, pairs trading, momentum
-- **Renaissance-style**: Multi-signal ensemble (pattern-based, inspired by quantitative hedge fund approaches)
-- **Deep learning**: LSTM, BiLSTM, GRU, Transformer, TCN for time series forecasting
+- **Renaissance-style**: Multi-signal ensemble (pattern-based)
+- **Influencer / sentiment**: Sentiment-based (Reddit/Twitter proxy), volume-sentiment
+- **Day trader**: Scalping (EMA crossover), Opening Range Breakout, EMA+Stochastic
+- **Institutional**: D.E. Shaw-style Kalman pairs, VWAP reversion, ATR breakout
+- **Deep learning**: LSTM, BiLSTM, GRU, Transformer, TCN
 - **Backtesting**: Unified engine for strategy evaluation
 
 ---
@@ -31,7 +34,11 @@ quant-forecast/
 │   │   ├── options/      # Black-Scholes, Monte Carlo
 │   │   ├── stochastic/   # Brownian, GBM, Ornstein-Uhlenbeck
 │   │   ├── stats/        # Mean reversion, pairs, momentum
-│   │   └── renaissance/  # Signal ensemble
+│   │   ├── renaissance/  # Signal ensemble
+│   │   ├── influencer/   # Sentiment, volume-sentiment
+│   │   ├── daytrader/    # Scalping, ORB, EMA+Stochastic
+│   │   ├── institutional/ # Kalman pairs, VWAP, ATR breakout
+│   │   └── papers/        # Academic: Moskowitz, JT, GGR, De Bondt-Thaler
 │   ├── pipeline/         # Data & preprocessing
 │   │   ├── data_fetcher*.py
 │   │   ├── pipeline.py
@@ -111,8 +118,17 @@ python train.py --model_type transformer --loss huber --epochs 30
 ### Backtest Strategies
 
 ```bash
-# Run mean reversion, momentum, Renaissance ensemble on SPY
+# Core strategies (mean reversion, momentum, Renaissance)
 python scripts/backtest_strategies.py --symbol SPY --period 365d
+
+# All strategies (incl. scalping, ORB, VWAP, ATR, volume-sentiment)
+python scripts/backtest_strategies.py --symbol SPY --period 365d --all
+
+# Paper strategies (Moskowitz TSMOM, De Bondt-Thaler)
+python scripts/backtest_papers.py --symbol SPY --period 5y
+
+# GGR pairs (Gatev et al. 2006)
+python scripts/backtest_papers.py --symbol1 SPY --symbol2 IVV --period 2y
 
 # Baseline forecasts (persistence, MA, ARIMA)
 python scripts/backtest_baselines.py --symbol SPY --period 365d
@@ -176,12 +192,20 @@ print(mc.price("european", "call"))
 
 ### Trading Strategies
 
-| Strategy   | Logic                          | Market regime        |
-|-----------|---------------------------------|----------------------|
-| Mean reversion | Z-score vs rolling mean     | Range-bound          |
-| Momentum       | Past return sign             | Trending             |
-| Pairs trading  | Cointegrated spread z-score  | Statistical arb      |
-| Renaissance    | Multi-signal ensemble        | Adaptive             |
+| Strategy   | Logic                          | Source / Use case        |
+|-----------|---------------------------------|--------------------------|
+| Mean reversion | Z-score vs rolling mean     | Range-bound              |
+| Momentum       | Past return sign             | Trending                 |
+| Pairs trading  | Cointegrated spread z-score  | Stat arb                 |
+| Renaissance    | Multi-signal ensemble        | Adaptive                 |
+| **Sentiment**  | External sentiment scores    | Reddit/Twitter/News      |
+| **Volume sentiment** | Volume spike + momentum  | Crowd/influencer proxy   |
+| **Scalping**   | EMA crossover                | Day trading              |
+| **ORB**        | Opening range breakout       | Day trading              |
+| **EMA+Stochastic** | EMA + Stoch overbought/oversold | Day trading       |
+| **Kalman pairs** | Dynamic hedge ratio (Kalman) | D.E. Shaw-style stat arb |
+| **VWAP reversion** | Mean revert to VWAP       | Institutional            |
+| **ATR breakout**  | Volatility breakout         | Institutional            |
 
 ---
 
@@ -237,6 +261,13 @@ EPOCHS = 20
 PATIENCE = 5
 CLIP_VALUE = 1.0  # Gradient clipping
 ```
+
+---
+
+## Strategy Details
+
+- **[docs/STRATEGIES.md](docs/STRATEGIES.md)** — Sources, logic, selection guide
+- **[docs/PAPERS.md](docs/PAPERS.md)** — Academic paper strategies with citations
 
 ---
 
