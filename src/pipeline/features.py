@@ -164,6 +164,27 @@ class TechnicalIndicators:
         vwap = cumulative_pv / cumulative_volume.replace(0, np.nan)
         
         return vwap.ffill()
+
+    def calculate_atr(self, period: int = 14) -> pd.Series:
+        """
+        Average True Range (ATR) - volatility indicator.
+        ATR = EMA of True Range over period.
+        True Range = max(high-low, |high-prev_close|, |low-prev_close|)
+        """
+        prev_close = self.close.shift(1)
+        tr1 = self.high - self.low
+        tr2 = (self.high - prev_close).abs()
+        tr3 = (self.low - prev_close).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        return tr.ewm(span=period, adjust=False).mean()
+
+    def calculate_stochastic(self, k_period: int = 14, d_period: int = 3) -> dict:
+        """Stochastic Oscillator: %K and %D."""
+        lowest = self.low.rolling(k_period).min()
+        highest = self.high.rolling(k_period).max()
+        k = 100 * (self.close - lowest) / (highest - lowest).replace(0, np.nan)
+        d = k.rolling(d_period).mean()
+        return {"k": k, "d": d}
     
     def calculate_all_features(self) -> pd.DataFrame:
         """
@@ -191,6 +212,12 @@ class TechnicalIndicators:
         
         # Calculate VWAP
         features_df['vwap'] = self.calculate_vwap()
+        # Calculate ATR
+        features_df['atr'] = self.calculate_atr()
+        # Calculate Stochastic
+        stoch = self.calculate_stochastic()
+        features_df['stoch_k'] = stoch['k']
+        features_df['stoch_d'] = stoch['d']
         
         return features_df
 
