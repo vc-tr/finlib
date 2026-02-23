@@ -44,7 +44,8 @@ quant-forecast/
 │   │   ├── pipeline.py
 │   │   ├── features.py   # RSI, MACD, Bollinger, VWAP
 │   │   └── baselines.py  # Persistence, MA, ARIMA
-│   └── backtest/         # Backtesting engine
+│   ├── backtest/         # Backtesting engine
+│   └── portfolio/        # Multi-strategy allocation (equal, risk parity)
 ├── scripts/
 │   ├── backtest_strategies.py   # Run strategy backtests
 │   ├── backtest_baselines.py   # Baseline forecast evaluation
@@ -129,6 +130,10 @@ python scripts/backtest_papers.py --symbol SPY --period 5y
 
 # GGR pairs (Gatev et al. 2006)
 python scripts/backtest_papers.py --symbol1 SPY --symbol2 IVV --period 2y
+
+# Multi-strategy portfolio (equal / risk parity / inverse vol)
+python scripts/backtest_portfolio.py --symbol SPY --period 2y --alloc equal
+python scripts/backtest_portfolio.py --symbol SPY --period 2y --alloc risk_parity
 
 # Baseline forecasts (persistence, MA, ARIMA)
 python scripts/backtest_baselines.py --symbol SPY --period 365d
@@ -268,6 +273,7 @@ CLIP_VALUE = 1.0  # Gradient clipping
 
 - **[docs/STRATEGIES.md](docs/STRATEGIES.md)** — Sources, logic, selection guide
 - **[docs/PAPERS.md](docs/PAPERS.md)** — Academic paper strategies with citations
+- **[docs/PORTFOLIO.md](docs/PORTFOLIO.md)** — Multi-strategy portfolio management
 
 ---
 
