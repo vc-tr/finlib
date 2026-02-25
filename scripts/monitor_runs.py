@@ -120,7 +120,10 @@ def _run_metrics(run_dir: Path) -> dict:
     orders_path = run_dir / "orders_to_place.csv"
     has_orders = orders_path.exists() and orders_path.stat().st_size > 50
 
-    rtype = _run_type(run_dir.name)
+    run_meta = _load_json(run_dir / "run_meta.json")
+    rtype = run_meta.get("run_type") if run_meta else None
+    if not rtype:
+        rtype = _run_type(run_dir.name)
     asof = ""
     for p in RUN_TYPE_PATTERNS:
         if p in run_dir.name:

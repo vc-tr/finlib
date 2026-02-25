@@ -12,7 +12,8 @@ Usage:
 import argparse
 import json
 import sys
-from datetime import datetime
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -80,6 +81,65 @@ def _compute_turnover(target_w: dict[str, float], current_w: dict[str, float]) -
     """Turnover = 0.5 * sum_i |w_target_i - w_current_i| over all tradable symbols (exclude cash)."""
     all_syms = set(target_w.keys()) | set(current_w.keys())
     return 0.5 * sum(abs(target_w.get(s, 0.0) - current_w.get(s, 0.0)) for s in all_syms)
+
+
+def _write_run_meta(output_dir: Path, run_meta: dict) -> Path:
+    """Write run_meta.json with JSON-safe types. Returns path to file."""
+    path = output_dir / "run_meta.json"
+    path.write_text(json.dumps(to_jsonable(run_meta), indent=2), encoding="utf-8")
+    return path
+
+
+def _build_run_meta(
+    *,
+    output_dir: Path,
+    state_path: Path,
+    state_loaded: bool,
+    asof_requested: str | None,
+    asof_trading: str,
+    rebalance: str,
+    universe: str,
+    factor: str,
+    combo: str | None,
+    combo_method: str | None,
+    cost_model: str,
+    apply: bool,
+    result: dict | None = None,
+    status: str = "ok",
+    error: str | None = None,
+) -> dict:
+    """Build run_meta dict for run_meta.json."""
+    meta: dict = {
+        "run_type": "daily",
+        "asof_requested": asof_requested or "",
+        "asof_trading": asof_trading,
+        "state_path": str(state_path.resolve()),
+        "state_loaded": state_loaded,
+        "rebalance": rebalance,
+        "interval": "1d",
+        "universe": universe,
+        "factor": factor,
+        "combo": combo,
+        "combo_method": combo_method,
+        "cost_model": cost_model,
+        "fill_mode": "next_close",
+        "applied": apply,
+        "output_dir": str(output_dir),
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    if status == "error":
+        meta["status"] = "error"
+        meta["error"] = error or ""
+        meta["rebalance_day"] = False
+        meta["orders_count"] = 0
+        meta["turnover"] = 0.0
+        meta["beta"] = None
+    else:
+        meta["rebalance_day"] = result.get("rebalance_day", False)
+        meta["orders_count"] = result.get("n_orders", 0)
+        meta["turnover"] = float(result.get("turnover", 0.0))
+        meta["beta"] = result.get("risk_checks", {}).get("portfolio_beta")
+    return meta
 
 
 def _run_daily(
@@ -343,6 +403,7 @@ def _run_daily(
         "portfolio_beta": beta_p,
         "risk_checks": risk_checks,
         "applied": apply,
+        "rebalance_day": is_rebalance_day or force_rebalance,
     }
     (output_dir / "summary.json").write_text(json.dumps(to_jsonable(summary), indent=2), encoding="utf-8")
 
@@ -419,46 +480,111 @@ def main() -> None:
     if asof not in prices.index:
         asof = prices.index[prices.index <= asof].max() if len(prices.index[prices.index <= asof]) > 0 else prices.index.max()
 
+    state_path_resolved = state_path.resolve()
+    state_loaded = state_path_resolved.exists()
+
+    def _write_meta_and_exit(result_or_error: dict) -> None:
+        if "error" in result_or_error:
+            meta = _build_run_meta(
+                output_dir=output_dir,
+                state_path=state_path_resolved,
+                state_loaded=state_loaded,
+                asof_requested=args.asof,
+                asof_trading=str(asof.date()),
+                rebalance=args.rebalance,
+                universe=args.universe,
+                factor=args.factor,
+                combo=args.combo,
+                combo_method=args.combo_method,
+                cost_model=args.cost_model,
+                apply=args.apply,
+                status="error",
+                error=result_or_error["error"],
+            )
+        else:
+            meta = _build_run_meta(
+                output_dir=output_dir,
+                state_path=state_path_resolved,
+                state_loaded=state_loaded,
+                asof_requested=args.asof,
+                asof_trading=str(asof.date()),
+                rebalance=args.rebalance,
+                universe=args.universe,
+                factor=args.factor,
+                combo=args.combo,
+                combo_method=args.combo_method,
+                cost_model=args.cost_model,
+                apply=args.apply,
+                result=result_or_error,
+            )
+        path = _write_run_meta(output_dir, meta)
+        print(f"Run meta: {path}")
+
     print(f"[2/3] Running daily pipeline (asof={asof.date()})...")
-    result = _run_daily(
-        df_by_symbol,
-        strategy=args.strategy,
-        factor=args.factor,
-        combo_list=combo_list,
-        combo_method=args.combo_method,
-        asof=asof,
-        rebalance=args.rebalance,
-        initial_cash=args.initial_cash,
-        cost_model=args.cost_model,
-        fee_bps=args.fee_bps,
-        slippage_bps=args.slippage_bps,
-        spread_bps=args.spread_bps,
-        top_k=args.top_k,
-        bottom_k=args.bottom_k,
-        max_gross=args.max_gross,
-        max_net=args.max_net,
-        max_position_weight=args.max_position_weight,
-        beta_threshold=args.beta_threshold,
-        state_path=state_path,
-        output_dir=output_dir,
-        apply=args.apply,
-        force_rebalance=args.force_rebalance,
-    )
+    try:
+        result = _run_daily(
+            df_by_symbol,
+            strategy=args.strategy,
+            factor=args.factor,
+            combo_list=combo_list,
+            combo_method=args.combo_method,
+            asof=asof,
+            rebalance=args.rebalance,
+            initial_cash=args.initial_cash,
+            cost_model=args.cost_model,
+            fee_bps=args.fee_bps,
+            slippage_bps=args.slippage_bps,
+            spread_bps=args.spread_bps,
+            top_k=args.top_k,
+            bottom_k=args.bottom_k,
+            max_gross=args.max_gross,
+            max_net=args.max_net,
+            max_position_weight=args.max_position_weight,
+            beta_threshold=args.beta_threshold,
+            state_path=state_path,
+            output_dir=output_dir,
+            apply=args.apply,
+            force_rebalance=args.force_rebalance,
+        )
 
-    if "error" in result:
-        err_msg = result["error"]
-        (output_dir / "ERROR.txt").write_text(err_msg, encoding="utf-8")
-        print(f"[ERROR] {err_msg}")
-        sys.exit(1)
+        if "error" in result:
+            (output_dir / "ERROR.txt").write_text(result["error"], encoding="utf-8")
+            _write_meta_and_exit(result)
+            print(f"[ERROR] {result['error']}")
+            sys.exit(1)
 
-    print("[3/3] Done:")
-    print("-" * 40)
-    print(f"  Orders:     {result['n_orders']}")
-    print(f"  Turnover:   {result['turnover']:.2%}")
-    print(f"  Beta:       {result['risk_checks']['portfolio_beta']:.2f}")
-    print(f"  Applied:    {result['applied']}")
-    print("-" * 40)
-    print(f"Output: {output_dir}")
+        _write_meta_and_exit(result)
+
+        print("[3/3] Done:")
+        print("-" * 40)
+        print(f"  Orders:     {result['n_orders']}")
+        print(f"  Turnover:   {result['turnover']:.2%}")
+        print(f"  Beta:       {result['risk_checks']['portfolio_beta']:.2f}")
+        print(f"  Applied:    {result['applied']}")
+        print("-" * 40)
+        print(f"Output: {output_dir}")
+
+    except Exception as e:
+        meta = _build_run_meta(
+            output_dir=output_dir,
+            state_path=state_path_resolved,
+            state_loaded=state_loaded,
+            asof_requested=args.asof,
+            asof_trading=str(asof.date()),
+            rebalance=args.rebalance,
+            universe=args.universe,
+            factor=args.factor,
+            combo=args.combo,
+            combo_method=args.combo_method,
+            cost_model=args.cost_model,
+            apply=args.apply,
+            status="error",
+            error=str(e),
+        )
+        path = _write_run_meta(output_dir, meta)
+        (output_dir / "ERROR.txt").write_text(traceback.format_exc(), encoding="utf-8")
+        print(f"Run meta: {path}")
+        raise
 
 
 if __name__ == "__main__":
