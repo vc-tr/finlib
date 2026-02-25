@@ -40,3 +40,29 @@ def estimate_beta(
         betas[col] = cov / var_m
 
     return betas.fillna(0)
+
+
+def rolling_portfolio_beta(
+    port_returns: pd.Series,
+    market_returns: pd.Series,
+    window: int = 252,
+) -> pd.Series:
+    """
+    Rolling beta of portfolio vs market: beta_p(t) = cov(r_p, r_m) / var(r_m) over window.
+
+    Args:
+        port_returns: Portfolio return series
+        market_returns: Market return series (e.g. SPY close-to-close)
+        window: Rolling window in bars
+
+    Returns:
+        Series of rolling portfolio beta
+    """
+    common_idx = port_returns.index.intersection(market_returns.index)
+    pr = port_returns.reindex(common_idx).fillna(0)
+    mr = market_returns.reindex(common_idx).fillna(0)
+
+    var_m = mr.rolling(window).var().replace(0, np.nan)
+    cov_pm = pr.rolling(window).cov(mr)
+    beta_p = cov_pm / var_m
+    return beta_p.fillna(0)

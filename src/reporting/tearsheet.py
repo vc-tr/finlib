@@ -80,6 +80,8 @@ def generate_tearsheet(
     portfolio_beta_before: Optional[pd.Series] = None,
     portfolio_beta_after: Optional[pd.Series] = None,
     hedge_weight: Optional[pd.Series] = None,
+    beta_series: Optional[pd.Series] = None,
+    beta_neutral: bool = False,
 ) -> None:
     """
     Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
@@ -103,6 +105,8 @@ def generate_tearsheet(
         portfolio_beta_before: Portfolio beta before hedge (beta-neutral)
         portfolio_beta_after: Portfolio beta after hedge (beta-neutral)
         hedge_weight: Hedge weight (e.g. SPY) over time (beta-neutral)
+        beta_series: Rolling portfolio beta vs market (beta_p(t))
+        beta_neutral: Whether beta-neutral mode was enabled
     """
     out = Path(output_dir)
     _ensure_dir(out)
@@ -214,6 +218,19 @@ def generate_tearsheet(
         fig.savefig(out / "hedge_weight.png", dpi=100)
         plt.close()
 
+    # Rolling portfolio beta vs market
+    if beta_series is not None and len(beta_series.dropna()) > 0:
+        bs = beta_series.reindex(prices.index).ffill().fillna(0)
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.plot(bs.index, bs.values, color="steelblue", alpha=0.8)
+        ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
+        ax.set_title("Rolling Portfolio Beta vs Market")
+        ax.set_ylabel("Beta")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(out / "rolling_beta.png", dpi=100)
+        plt.close()
+
     # Portfolio/universe extras when weights provided
     exposures_stats: Optional[Dict[str, Any]] = None
     contribution_top: Optional[pd.Series] = None
@@ -265,6 +282,8 @@ def generate_tearsheet(
     pngs = ["equity_curve", "drawdown", "rolling_sharpe", "returns_hist", "positions", "turnover"]
     if portfolio_beta_before is not None:
         pngs.extend(["portfolio_beta", "hedge_weight"])
+    if beta_series is not None and len(beta_series.dropna()) > 0:
+        pngs.append("rolling_beta")
     report_lines = [
         "# Backtest Report",
         "",
@@ -299,6 +318,8 @@ def generate_tearsheet(
             "",
             "| Metric | Value |",
             "|--------|-------|",
+            f"| mean(|beta|) before hedge | {float(b_bef.abs().mean()):.2f} |",
+            f"| mean(|beta|) after hedge | {float(b_aft.abs().mean()):.2f} |",
             f"| Beta (before hedge, mean) | {float(b_bef.mean()):.2f} |",
             f"| Beta (after hedge, mean) | {float(b_aft.mean()):.2f} |",
             f"| |Beta| reduction | {float(b_bef.abs().mean() - b_aft.abs().mean()):.2f} |",
@@ -308,6 +329,24 @@ def generate_tearsheet(
             beta_lines.append(f"| Hedge weight (mean) | {float(hw.mean()):.2%} |")
         beta_lines.append("")
         report_lines.extend(beta_lines)
+
+    if beta_series is not None and len(beta_series.dropna()) > 0:
+        bs = beta_series.dropna()
+        bs_std = float(bs.std()) if len(bs) > 1 else 0.0
+        beta_exp_lines = [
+            "",
+            "## Market Beta Exposure",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| mean beta | {float(bs.mean()):.2f} |",
+            f"| std beta | {bs_std:.2f} |",
+            f"| max |beta| | {float(bs.abs().max()):.2f} |",
+            "",
+            "- [beta_series.csv](beta_series.csv) — rolling beta by date",
+            "",
+        ]
+        report_lines.extend(beta_exp_lines)
     if exposures_stats:
         report_lines.extend([
             "",
