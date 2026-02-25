@@ -28,6 +28,29 @@ def _align_prices_and_returns(df_by_symbol: Dict[str, pd.DataFrame]) -> tuple:
     return price_df, returns_df
 
 
+KNOWN_FACTORS = ("momentum_12_1", "reversal_5d", "lowvol_20d")
+
+
+def compute_factors(
+    df_by_symbol: Dict[str, pd.DataFrame],
+    factors: list[str],
+) -> Dict[str, pd.DataFrame]:
+    """
+    Compute multiple factors at once.
+
+    Args:
+        df_by_symbol: {symbol: OHLCV DataFrame}
+        factors: List of factor names (e.g. ["momentum_12_1", "reversal_5d"])
+
+    Returns:
+        dict[factor_name, DataFrame] with index=date, columns=symbol, values=factor
+    """
+    out: Dict[str, pd.DataFrame] = {}
+    for f in factors:
+        out[f] = compute_factor(df_by_symbol, f)
+    return out
+
+
 def compute_factor(
     df_by_symbol: Dict[str, pd.DataFrame],
     factor: str,

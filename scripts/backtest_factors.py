@@ -5,6 +5,7 @@ Cross-sectional factor backtest.
 Usage:
     python scripts/backtest_factors.py --universe liquid_etfs --factor momentum_12_1 --rebalance M --top-k 10 --bottom-k 10
     python scripts/backtest_factors.py --factor lowvol_20d --period 5y --walkforward
+    python scripts/backtest_factors.py --factor combo --combo "momentum_12_1,reversal_5d,lowvol_20d" --combo-method equal --walkforward
 """
 
 import argparse
@@ -21,9 +22,7 @@ from src.backtest import Backtester
 from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe
 from src.factors.factors import get_prices_wide
 from src.factors.ensemble import combine_factors
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral, apply_constraints
-from src.factors.risk import estimate_beta
-from src.factors.research import forward_returns, information_coefficient, summarize_ic
+from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
 
@@ -68,13 +67,8 @@ def _run_factor_backtest(
     slippage_bps: float,
     spread_bps: float,
     annualization: float,
-    beta_neutral: bool = False,
-    market_symbol: str = "SPY",
-    beta_window: int = 252,
-    max_gross: float | None = None,
-    max_net: float | None = None,
 ) -> tuple:
-    """Run factor backtest, return (result, positions, prices, turnover, w_held, portfolio_beta, hedge_weight)."""
+    """Run factor backtest, return (result, positions, prices, turnover, weights_held)."""
     weights = cross_sectional_rank(
         factor_df,
         top_k=top_k,
@@ -85,27 +79,8 @@ def _run_factor_backtest(
         max_weight=0.1,
     )
     prices = get_prices_wide(df_by_symbol)
-    returns = prices.pct_change()
-    betas = None
-    if beta_neutral and market_symbol in returns.columns:
-        betas = estimate_beta(returns, returns[market_symbol], window=beta_window)
-    build_kw = dict(rebalance=rebalance, execution_delay=1, max_gross=max_gross, max_net=max_net)
-    if beta_neutral and betas is not None:
-        build_kw["beta_neutral"] = True
-        build_kw["betas"] = betas
-        build_kw["market_symbol"] = market_symbol
-    out = build_portfolio(weights, prices, **build_kw)
-    if isinstance(out, tuple):
-        port_ret, beta_before, beta_after, hedge_weight = out
-    else:
-        port_ret = out
-        beta_before = beta_after = hedge_weight = None
-    w = weights.copy()
-    if max_gross is not None or max_net is not None:
-        w = apply_constraints(w, max_gross=max_gross, max_net=max_net, gross_leverage=1.0)
-    if beta_neutral and betas is not None:
-        w, _, _ = apply_beta_neutral(w, betas, market_symbol=market_symbol)
-    w_held = _resample_weights_to_rebalance(w, rebalance).shift(1).fillna(0)
+    port_ret = build_portfolio(weights, prices, rebalance=rebalance, execution_delay=1)
+    w_held = _resample_weights_to_rebalance(weights, rebalance).shift(1).fillna(0)
     port_ret = apply_rebalance_costs(
         port_ret, w_held,
         cost_bps=fee_bps + slippage_bps + spread_bps,
@@ -114,7 +89,7 @@ def _run_factor_backtest(
     result = bt.run(port_ret)
     turnover = w_held.diff().abs().sum(axis=1).fillna(0)
     positions = w_held.sum(axis=1)
-    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight
+    return result, positions, prices, turnover, w_held
 
 
 def _get_factor_df(
@@ -140,17 +115,16 @@ def _get_factor_df(
         combined, weights = combine_factors(factors_dict, method="equal")
     else:
         if train_slice is None:
-            # Use first 70% of dates as train for non-walkforward
             idx = prices.index
             n = int(len(idx) * 0.7)
             if n < 30:
                 combined, weights = combine_factors(factors_dict, method="equal")
             else:
-                train_slice = slice(idx[0], idx[n - 1])
+                ts = slice(idx[0], idx[n - 1])
                 combined, weights = combine_factors(
                     factors_dict,
                     method=combo_method,
-                    train_slice=train_slice,
+                    train_slice=ts,
                     fwd_returns=fwd_returns,
                 )
         else:
@@ -178,11 +152,6 @@ def _run_walkforward(
     folds: int,
     train_days: int,
     test_days: int,
-    beta_neutral: bool = False,
-    market_symbol: str = "SPY",
-    beta_window: int = 252,
-    max_gross: float | None = None,
-    max_net: float | None = None,
 ) -> dict:
     """Run walk-forward: use history up to test_end, evaluate on test window only."""
     from src.backtest.walkforward import generate_folds
@@ -220,11 +189,9 @@ def _run_walkforward(
         else:
             factor_df, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
 
-        result, _, _, _, _, _, _, _ = _run_factor_backtest(
+        result, _, _, _, _ = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
-            beta_neutral=beta_neutral, market_symbol=market_symbol, beta_window=beta_window,
-            max_gross=max_gross, max_net=max_net,
         )
         test_ret = result.returns.loc[test_start:test_end].dropna()
         if len(test_ret) < 5:
@@ -284,21 +251,11 @@ def main() -> None:
     parser.add_argument("--folds", type=int, default=6)
     parser.add_argument("--train-days", type=int, default=252)
     parser.add_argument("--test-days", type=int, default=63)
-    parser.add_argument("--beta-neutral", action="store_true", help="Hedge portfolio beta via market (SPY)")
-    parser.add_argument("--market-symbol", default="SPY", help="Market symbol for beta hedge")
-    parser.add_argument("--beta-window", type=int, default=252, help="Rolling window for beta estimation")
-    parser.add_argument("--max-gross", type=float, default=None, help="Cap gross exposure per rebalance")
-    parser.add_argument("--max-net", type=float, default=None, help="Cap net exposure per rebalance")
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--lock-timeout", type=float, default=0)
-    parser.add_argument("--report-ic", action="store_true", default=True, help="Report information coefficient (default True)")
-    parser.add_argument("--no-report-ic", action="store_false", dest="report_ic")
-    parser.add_argument("--ic-horizons", default="1,5,21", help="Comma-separated IC horizons (default 1,5,21)")
     args = parser.parse_args()
 
     symbols = get_universe(args.universe, n=50)
-    if args.beta_neutral and args.market_symbol not in symbols:
-        symbols = [args.market_symbol] + [s for s in symbols if s != args.market_symbol][:49]
     annualization = 252 if args.interval == "1d" else 252 * 6.5
 
     if args.output_dir:
@@ -331,8 +288,6 @@ def main() -> None:
             args.top_k, args.bottom_k, args.rebalance,
             args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
             args.folds, args.train_days, args.test_days,
-            beta_neutral=args.beta_neutral, market_symbol=args.market_symbol,
-            beta_window=args.beta_window, max_gross=args.max_gross, max_net=args.max_net,
         )
         agg = wf_result["aggregated"]
         print(f"  Mean Sharpe: {agg['mean_sharpe']:.2f}")
@@ -351,11 +306,9 @@ def main() -> None:
     factor_df, combo_weights = _get_factor_df(
         df_by_symbol, args.factor, combo_list, args.combo_method, None
     )
-    result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight = _run_factor_backtest(
+    result, positions, prices, turnover, w_held = _run_factor_backtest(
         df_by_symbol, factor_df, args.top_k, args.bottom_k, args.rebalance,
         args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
-        beta_neutral=args.beta_neutral, market_symbol=args.market_symbol,
-        beta_window=args.beta_window, max_gross=args.max_gross, max_net=args.max_net,
     )
 
     print("[3/4] Results:")
@@ -366,23 +319,6 @@ def main() -> None:
     print(f"  Trades:      {result.n_trades}")
     print(f"  Turnover:    {turnover.mean() * annualization:.2f} (ann.)")
     print("-" * 50)
-
-    ic_summary = None
-    ic_preview = None
-    if args.report_ic:
-        horizons = [int(x.strip()) for x in args.ic_horizons.split(",")]
-        fwd = forward_returns(prices, horizons=horizons)
-        ic_summary = {}
-        ic_preview = {}
-        for h in horizons:
-            ic_series = information_coefficient(factor_df, fwd[h], method="spearman")
-            ic_series.to_csv(output_dir / f"ic_timeseries_{h}.csv", header=["ic"])
-            s = summarize_ic(ic_series)
-            ic_summary[str(h)] = s
-            ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
-        (output_dir / "ic_summary.json").write_text(
-            json.dumps(ic_summary, indent=2), encoding="utf-8"
-        )
 
     if combo_weights is not None:
         (output_dir / "combo_weights.json").write_text(
@@ -396,8 +332,6 @@ def main() -> None:
         "rebalance": args.rebalance,
         "top_k": args.top_k,
         "bottom_k": args.bottom_k,
-        "beta_neutral": args.beta_neutral,
-        "market_symbol": args.market_symbol,
     }
     if combo_weights is not None:
         config["combo_weights"] = combo_weights
@@ -410,11 +344,6 @@ def main() -> None:
         weights=w_held,
         turnover_series=turnover,
         prices_wide=prices,
-        ic_summary=ic_summary,
-        ic_preview=ic_preview,
-        portfolio_beta_before=beta_before,
-        portfolio_beta_after=beta_after,
-        hedge_weight=hedge_weight,
     )
     summary = {
         "factor": args.factor,
@@ -422,16 +351,14 @@ def main() -> None:
         "top_k": args.top_k,
         "bottom_k": args.bottom_k,
         "sharpe": result.sharpe_ratio,
+        "total_return": result.total_return,
+        "max_drawdown": result.max_drawdown,
+        "n_trades": result.n_trades,
     }
     if combo_weights is not None:
         summary["combo_weights"] = combo_weights
         summary["combo"] = args.combo
         summary["combo_method"] = args.combo_method
-    summary.update({
-        "total_return": result.total_return,
-        "max_drawdown": result.max_drawdown,
-        "n_trades": result.n_trades,
-    })
     (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"Output: {output_dir}")
 

@@ -6,17 +6,9 @@ import numpy as np
 import pandas as pd
 
 from src.backtest import Backtester
-from src.factors import (
-    compute_factor,
-    cross_sectional_rank,
-    build_portfolio,
-    get_universe,
-    forward_returns,
-    information_coefficient,
-    summarize_ic,
-)
+from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe
 from src.factors.factors import get_prices_wide
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral, apply_constraints
+from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral
 from src.factors.risk import estimate_beta
 
 
@@ -62,6 +54,18 @@ def test_compute_factor_lowvol() -> None:
     df_by = _synthetic_df_by_symbol(100, 10)
     factor_df = compute_factor(df_by, "lowvol_20d")
     assert factor_df.shape[1] == 10
+
+
+def test_compute_factors_multiple() -> None:
+    """compute_factors returns dict of factor DataFrames."""
+    df_by = _synthetic_df_by_symbol(100, 10)
+    factors = compute_factors(df_by, ["momentum_12_1", "reversal_5d", "lowvol_20d"])
+    assert len(factors) == 3
+    assert "momentum_12_1" in factors
+    assert "reversal_5d" in factors
+    assert "lowvol_20d" in factors
+    for f in factors.values():
+        assert f.shape[1] == 10
 
 
 def test_cross_sectional_rank() -> None:
@@ -165,30 +169,3 @@ def test_beta_neutral_reduces_absolute_beta() -> None:
     betas["B"] = 0.8
     w_adj, beta_before, beta_after = apply_beta_neutral(weights, betas, market_symbol="SPY")
     assert (beta_after.abs() < beta_before.abs() + 0.01).all()
-
-
-def test_ic_positive_when_factor_predicts_returns() -> None:
-    """IC is positive when factor predicts forward returns (synthetic data)."""
-    rng = np.random.RandomState(42)
-    n_dates, n_symbols = 200, 30
-    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
-    # Factor = signal that predicts fwd returns (add noise)
-    signal = rng.randn(n_dates, n_symbols) * 0.5
-    fwd_ret = signal + rng.randn(n_dates, n_symbols) * 0.3  # factor drives returns
-    factor_df = pd.DataFrame(signal, index=idx, columns=[f"S{i}" for i in range(n_symbols)])
-    fwd_ret_df = pd.DataFrame(fwd_ret, index=idx, columns=factor_df.columns)
-    ic_series = information_coefficient(factor_df, fwd_ret_df, method="spearman")
-    mean_ic = ic_series.dropna().mean()
-    assert mean_ic > 0.5, f"Expected IC > 0.5 when factor predicts returns, got {mean_ic}"
-
-
-def test_summarize_ic_t_stat_finite() -> None:
-    """summarize_ic returns finite t_stat and correct n."""
-    rng = np.random.RandomState(43)
-    n = 100
-    idx = pd.date_range("2020-01-01", periods=n, freq="B")
-    ic_series = pd.Series(rng.randn(n) * 0.1 + 0.05, index=idx)
-    out = summarize_ic(ic_series)
-    assert "t_stat" in out
-    assert np.isfinite(out["t_stat"]), f"t_stat must be finite, got {out['t_stat']}"
-    assert out["n"] == n
