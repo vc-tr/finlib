@@ -4,7 +4,6 @@ Factor backtest runner: CLI-friendly main(args).
 
 import json
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +21,8 @@ from src.factors import (
 from src.factors.factors import get_prices_wide
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
-from src.utils.io import fetch_universe_ohlcv
+from src.utils.io import fetch_universe_ohlcv, make_output_dir, timestamp_for_run
+from src.utils.jsonable import to_jsonable
 
 
 def main(args: Any, cmd: str | None = None) -> Path:
@@ -43,12 +43,10 @@ def main(args: Any, cmd: str | None = None) -> Path:
     annualization = 252 if args.interval == "1d" else 252 * 6.5
 
     if args.output_dir:
-        output_dir = Path(args.output_dir)
+        output_dir = Path(args.output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
     else:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("output") / "runs" / f"{ts}_factors_{args.factor}_{args.rebalance}"
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = make_output_dir("output/runs", f"{timestamp_for_run()}_factors_{args.factor}_{args.rebalance}")
 
     print(f"[1/4] Fetching {len(symbols)} symbols ({args.period}, {args.interval})...")
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
@@ -150,7 +148,7 @@ def _run_walkforward(
             ic_summary_wf[str(h)] = summarize_ic(ic_concat)
             ic_concat.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
         ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on concatenated OOS test windows; no train data used."}
-        (output_dir / "ic_summary.json").write_text(json.dumps({"config": ic_config, "summary": ic_summary_wf}, indent=2), encoding="utf-8")
+        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")
     elif getattr(args, "report_ic", False) and "all_returns" in wf_result:
         fwd = forward_returns(prices_wide, horizons=ic_horizons)
         agg_ret = wf_result["all_returns"]
@@ -163,12 +161,12 @@ def _run_walkforward(
             ic_s.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
             ic_summary_wf[str(h)] = summarize_ic(ic_s)
         ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on dates in concatenated OOS test windows."}
-        (output_dir / "ic_summary.json").write_text(json.dumps({"config": ic_config, "summary": ic_summary_wf}, indent=2), encoding="utf-8")
+        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")
 
     summary = {"walkforward": True, "aggregated": agg, "per_fold": wf_result["per_fold"]}
     if "combo_weights_per_fold" in wf_result:
         summary["combo_weights_per_fold"] = wf_result["combo_weights_per_fold"]
-        (output_dir / "combo_weights.json").write_text(json.dumps(wf_result["combo_weights_per_fold"], indent=2), encoding="utf-8")
+        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(wf_result["combo_weights_per_fold"]), indent=2), encoding="utf-8")
         cw = wf_result["combo_weights_per_fold"]
         report_lines = [
             "# Walk-Forward Combo Report", "",
@@ -210,7 +208,7 @@ def _run_walkforward(
             report_lines.append("")
         report_lines.extend(["- [combo_weights.json](combo_weights.json) — full per-fold weights", ""])
         (output_dir / "REPORT.md").write_text("\n".join(report_lines), encoding="utf-8")
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(json.dumps(to_jsonable(summary), indent=2), encoding="utf-8")
     return output_dir
 
 
@@ -265,7 +263,7 @@ def _run_single(
     capacity_report = out[9] if len(out) > 9 else None
 
     if capacity_report:
-        (output_dir / "capacity_report.json").write_text(json.dumps(capacity_report, indent=2), encoding="utf-8")
+        (output_dir / "capacity_report.json").write_text(json.dumps(to_jsonable(capacity_report), indent=2), encoding="utf-8")
 
     turnover_at_rb = turnover[turnover > 1e-10]
     avg_turnover_per_rebalance = turnover_at_rb.mean() if len(turnover_at_rb) > 0 else 0.0
@@ -284,7 +282,7 @@ def _run_single(
     print("-" * 50)
 
     if combo_weights:
-        (output_dir / "combo_weights.json").write_text(json.dumps(combo_weights, indent=2), encoding="utf-8")
+        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(combo_weights), indent=2), encoding="utf-8")
 
     factor_attribution = None
     if combo_weights and zscored:
@@ -308,7 +306,7 @@ def _run_single(
             corr = ex.corr(ret_aligned) if len(ex) >= 5 and ex.std() > 1e-12 else float("nan")
             att[fname] = {"mean_exposure": float(ex.mean()), "std_exposure": float(ex.std()) if len(ex) > 1 else 0.0, "corr_with_returns": float(corr) if pd.notna(corr) else None}
         factor_attribution = att
-        (output_dir / "factor_attribution.json").write_text(json.dumps(factor_attribution, indent=2), encoding="utf-8")
+        (output_dir / "factor_attribution.json").write_text(json.dumps(to_jsonable(factor_attribution), indent=2), encoding="utf-8")
 
     ic_summary = None
     ic_preview = None
@@ -324,8 +322,9 @@ def _run_single(
             ic_summary[str(h)] = summarize_ic(ic_series)
             ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
         (output_dir / "ic_summary.json").write_text(
-            json.dumps({"config": {"horizons": ic_horizons, "method": ic_method, "scope": "full_backtest_window"}, "summary": ic_summary}, indent=2
-        ), encoding="utf-8")
+            json.dumps(to_jsonable({"config": {"horizons": ic_horizons, "method": ic_method, "scope": "full_backtest_window"}, "summary": ic_summary}), indent=2),
+            encoding="utf-8",
+        )
 
     beta_series = None
     market_sym = getattr(args, "market_symbol", "SPY")
@@ -362,5 +361,5 @@ def _run_single(
         summary["combo_weights"] = combo_weights
         summary["combo"] = args.combo
         summary["combo_method"] = args.combo_method
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(json.dumps(to_jsonable(summary), indent=2), encoding="utf-8")
     return output_dir

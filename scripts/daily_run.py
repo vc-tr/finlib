@@ -23,7 +23,7 @@ from src.ops import build_run_meta, run_daily, write_run_meta
 from src.ops.daily import DEFAULT_STATE_PATH, MARKET_SYMBOL
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.utils.cli import build_daily_parser
-from src.utils.io import fetch_universe_ohlcv
+from src.utils.io import fetch_universe_ohlcv, make_output_dir, timestamp_for_run
 from src.utils.runlock import RunLock
 
 
@@ -39,13 +39,10 @@ def main() -> None:
     root = Path(__file__).resolve().parent.parent
     state_path = Path(args.state_path) if args.state_path else root / DEFAULT_STATE_PATH
     if args.output_dir:
-        output_dir = Path(args.output_dir)
+        output_dir = Path(args.output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
     else:
-        from datetime import datetime
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("output") / "runs" / f"{ts}_daily_{args.factor}_{args.rebalance}"
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = make_output_dir("output/runs", f"{timestamp_for_run()}_daily_{args.factor}_{args.rebalance}")
 
     symbols = get_universe(args.universe, n=30)
     if MARKET_SYMBOL not in symbols:

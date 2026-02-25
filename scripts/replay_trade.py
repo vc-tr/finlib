@@ -11,7 +11,6 @@ Usage:
 """
 
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -22,7 +21,7 @@ from src.factors import get_universe
 from src.paper.runner import run_replay
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.utils.cli import build_replay_parser
-from src.utils.io import fetch_universe_ohlcv
+from src.utils.io import fetch_universe_ohlcv, make_output_dir, timestamp_for_run
 from src.utils.runlock import RunLock
 
 
@@ -39,12 +38,10 @@ def main() -> None:
     end_ts = pd.Timestamp(args.end) if args.end else None
 
     if args.output_dir:
-        output_dir = Path(args.output_dir)
+        output_dir = Path(args.output_dir).resolve()
+        output_dir.mkdir(parents=True, exist_ok=True)
     else:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("output") / "runs" / f"{ts}_replay_{args.factor}_{args.rebalance}"
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = make_output_dir("output/runs", f"{timestamp_for_run()}_replay_{args.factor}_{args.rebalance}")
 
     symbols = get_universe(args.universe, n=30)
     print(f"[1/3] Fetching {len(symbols)} symbols ({args.period})...")

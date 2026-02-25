@@ -2,6 +2,8 @@
 Shared I/O and parsing utilities for scripts and pipeline.
 """
 
+from datetime import datetime
+from pathlib import Path
 from typing import Callable, Protocol
 
 import pandas as pd
@@ -27,6 +29,22 @@ def parse_period_days(period: str) -> int:
     if p.endswith("y"):
         return int(p[:-1]) * 252
     return 252
+
+
+def timestamp_for_run() -> str:
+    """Return YYYYMMDD_HHMMSS for run directory prefixes."""
+    return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def make_output_dir(base: str = "output/runs", suffix: str = "") -> Path:
+    """
+    Create output directory: base/suffix, with parents. Returns resolved Path.
+    suffix should include timestamp, e.g. "20240225_120000_factors_momentum_M".
+    """
+    out = Path(base) / suffix if suffix else Path(base)
+    out = out.resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 class OHLCVFetcher(Protocol):
