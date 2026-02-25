@@ -10,7 +10,7 @@ import pytest
 from pathlib import Path
 
 from src.backtest import Backtester
-from src.backtest.execution import ExecutionConfig
+from src.backtest.execution import ExecutionConfig, throttle_positions
 from src.reporting.tearsheet import generate_tearsheet
 
 
@@ -94,6 +94,44 @@ def test_backtester_accepts_dataframe() -> None:
     result = bt.run_from_signals(df, signals)
     assert result.total_return != 0
     assert result.n_trades == 2
+
+
+def test_decision_interval_reduces_trades() -> None:
+    """decision_interval_bars throttles position changes; fewer trades vs baseline."""
+    prices = _oscillating_prices(60)  # oscillating triggers more flips
+    # Oscillating signal: +1, -1, +1, -1, ... (flips every bar)
+    signals = pd.Series(0, index=prices.index)
+    for i in range(len(signals)):
+        signals.iloc[i] = 1 if i % 2 == 0 else -1
+
+    bt = Backtester()
+    r_baseline = bt.run_from_signals(prices, signals)
+
+    throttled = throttle_positions(signals, decision_interval_bars=5)
+    r_throttled = bt.run_from_signals(prices, throttled)
+
+    assert r_throttled.n_trades < r_baseline.n_trades, (
+        "decision_interval should reduce trades"
+    )
+
+
+def test_cost_sensitivity_worse_or_equal_with_costs() -> None:
+    """With costs, total return must be <= zero-cost return."""
+    prices = _oscillating_prices(50)
+    signals = pd.Series(0, index=prices.index)
+    signals.iloc[10:25] = 1
+    signals.iloc[25:40] = -1
+
+    bt = Backtester()
+    r_zero = bt.run_from_signals(prices, signals, execution_config=None)
+    r_costs = bt.run_from_signals(
+        prices,
+        signals,
+        execution_config=ExecutionConfig(fee_bps=10, slippage_bps=10, spread_bps=5),
+    )
+    assert r_costs.total_return <= r_zero.total_return, (
+        "Costs must produce worse-or-equal return"
+    )
 
 
 def test_tearsheet_outputs_files(tmp_path: Path) -> None:
