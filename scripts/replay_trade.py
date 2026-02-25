@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
-from src.factors import get_universe, compute_factor, UniverseRegistry, UniverseRegistry, UniverseRegistry
+from src.factors import get_universe, compute_factor
 from src.paper import PaperExchange, PaperBroker, RiskManager
 from src.paper.orders import OrderSide
 
