@@ -72,9 +72,15 @@ def generate_tearsheet(
     rolling_window: Optional[int] = None,
     annualization: float = 252,
     config: Optional[Dict[str, Any]] = None,
+    weights: Optional[pd.DataFrame] = None,
+    turnover_series: Optional[pd.Series] = None,
+    prices_wide: Optional[pd.DataFrame] = None,
 ) -> None:
     """
     Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
+
+    For portfolio/universe backtests, pass weights (date x symbol), turnover_series,
+    and prices_wide to add exposures, turnover plot, per-symbol contribution, holdings CSV.
 
     Args:
         result: BacktestResult from Backtester.run or run_from_signals
@@ -84,13 +90,19 @@ def generate_tearsheet(
         rolling_window: Window for rolling Sharpe (default: ~63 bars or 20% of data)
         annualization: Annualization factor (252 for daily)
         config: Optional run config for summary.json
+        weights: Optional weights DataFrame (date x symbol) for portfolio reporting
+        turnover_series: Optional turnover series (use when weights provided)
+        prices_wide: Optional prices DataFrame (date x symbol) for contribution
     """
     out = Path(output_dir)
     _ensure_dir(out)
 
     cum = result.cumulative_returns.reindex(prices.index).ffill().bfill().fillna(1.0)
     returns = result.returns.reindex(prices.index).fillna(0)
-    turnover = compute_turnover(signals).reindex(prices.index).fillna(0)
+    if turnover_series is not None:
+        turnover = turnover_series.reindex(prices.index).fillna(0)
+    else:
+        turnover = compute_turnover(signals).reindex(prices.index).fillna(0)
 
     rw = rolling_window or min(63, max(20, len(returns) // 5))
 
@@ -164,6 +176,35 @@ def generate_tearsheet(
     fig.savefig(out / "turnover.png", dpi=100)
     plt.close()
 
+    # Portfolio/universe extras when weights provided
+    exposures_stats: Optional[Dict[str, Any]] = None
+    contribution_top: Optional[pd.Series] = None
+    contribution_bottom: Optional[pd.Series] = None
+    if weights is not None and not weights.empty:
+        # Exposures: long count, short count, gross, net
+        long_count = (weights > 0).sum(axis=1)
+        short_count = (weights < 0).sum(axis=1)
+        gross = weights.abs().sum(axis=1)
+        net = weights.sum(axis=1)
+        exposures_stats = {
+            "long_count_mean": float(long_count.mean()),
+            "short_count_mean": float(short_count.mean()),
+            "gross_mean": f"{float(gross.mean()):.2%}",
+            "net_mean": f"{float(net.mean()):.2%}",
+        }
+        # holdings_by_date.csv
+        weights.reindex(prices.index).ffill().fillna(0).to_csv(out / "holdings_by_date.csv")
+        # Per-symbol contribution (when prices_wide provided)
+        if prices_wide is not None and not prices_wide.empty:
+            ret_wide = prices_wide.pct_change().reindex(weights.index).fillna(0)
+            common = weights.columns.intersection(ret_wide.columns)
+            w = weights.reindex(columns=common).fillna(0)
+            r = ret_wide.reindex(columns=common).fillna(0)
+            contrib = (w * r).sum(axis=0)
+            contrib = contrib.sort_values(ascending=False)
+            contribution_top = contrib.head(10)
+            contribution_bottom = contrib.tail(10)
+
     metrics = _summary_metrics(result, annualization)
     summary = {k: v for k, v in metrics.items() if not k.startswith("_")}
     if config:
@@ -195,6 +236,43 @@ def generate_tearsheet(
     for k, v in summary.items():
         if k != "config" and isinstance(v, (str, int, float)):
             report_lines.append(f"| {k} | {v} |")
+
+    if exposures_stats:
+        report_lines.extend([
+            "",
+            "## Exposures (portfolio/universe)",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Long count (mean) | {exposures_stats['long_count_mean']:.1f} |",
+            f"| Short count (mean) | {exposures_stats['short_count_mean']:.1f} |",
+            f"| Gross (mean) | {exposures_stats['gross_mean']} |",
+            f"| Net (mean) | {exposures_stats['net_mean']} |",
+            "",
+        ])
+
+    if contribution_top is not None and contribution_bottom is not None:
+        report_lines.extend([
+            "## Per-Symbol Contribution (top / bottom)",
+            "",
+            "| Symbol | Contribution |",
+            "|--------|--------------|",
+        ])
+        for sym, val in contribution_top.items():
+            report_lines.append(f"| {sym} | {val:.4%} |")
+        report_lines.append("| ... | ... |")
+        for sym, val in contribution_bottom.items():
+            report_lines.append(f"| {sym} | {val:.4%} |")
+        report_lines.append("")
+
+    if weights is not None:
+        report_lines.extend([
+            "## Holdings",
+            "",
+            "- [holdings_by_date.csv](holdings_by_date.csv) — weights by date (audit)",
+            "",
+        ])
+
     report_lines.extend(["", "## Charts", ""])
     for p in pngs:
         if (out / f"{p}.png").exists():

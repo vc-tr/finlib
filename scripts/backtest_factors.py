@@ -66,7 +66,7 @@ def _run_factor_backtest(
     spread_bps: float,
     annualization: float,
 ) -> tuple:
-    """Run factor backtest, return (result, positions, prices)."""
+    """Run factor backtest, return (result, positions, prices, turnover, weights_held)."""
     factor_df = compute_factor(df_by_symbol, factor)
     weights = cross_sectional_rank(
         factor_df, top_k=top_k, bottom_k=bottom_k,
@@ -83,7 +83,7 @@ def _run_factor_backtest(
     result = bt.run(port_ret)
     turnover = w_held.diff().abs().sum(axis=1).fillna(0)
     positions = w_held.sum(axis=1)
-    return result, positions, prices, turnover
+    return result, positions, prices, turnover, w_held
 
 
 def _run_walkforward(
@@ -118,7 +118,7 @@ def _run_walkforward(
         }
         if len(df_by_hist) < top_k + bottom_k:
             continue
-        result, _, _, _ = _run_factor_backtest(
+        result, _, _, _, _ = _run_factor_backtest(
             df_by_hist, factor, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
         )
@@ -211,7 +211,7 @@ def main() -> None:
         return
 
     print(f"[2/4] Computing factor {args.factor}...")
-    result, positions, prices, turnover = _run_factor_backtest(
+    result, positions, prices, turnover, w_held = _run_factor_backtest(
         df_by_symbol, args.factor, args.top_k, args.bottom_k, args.rebalance,
         args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
     )
@@ -236,6 +236,9 @@ def main() -> None:
             "top_k": args.top_k,
             "bottom_k": args.bottom_k,
         },
+        weights=w_held,
+        turnover_series=turnover,
+        prices_wide=prices,
     )
     summary = {
         "factor": args.factor,
