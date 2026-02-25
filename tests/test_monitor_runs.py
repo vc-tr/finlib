@@ -8,7 +8,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.monitor_runs import _run_monitor, _scan_daily_runs, _run_metrics
+from scripts.monitor_runs import _run_monitor, _run_metrics, _run_type, _scan_runs
 
 
 def test_monitor_empty_runs_dir(tmp_path: Path) -> None:
@@ -54,3 +54,43 @@ def test_monitor_alerts_on_turnover(tmp_path: Path) -> None:
     result = _run_monitor(tmp_path, out, n=5, turnover_threshold=0.5, beta_threshold=0.5, cost_spike_factor=2.0)
     turnover_alerts = [a for a in result["alerts"] if a["type"] == "turnover"]
     assert len(turnover_alerts) >= 1
+
+
+def test_run_type_detection() -> None:
+    """Run type is detected from folder name."""
+    assert _run_type("20240601_daily_momentum_M") == "daily"
+    assert _run_type("20240601_replay_SPY_1m") == "replay"
+    assert _run_type("20240601_factors_combo_M") == "factors"
+    assert _run_type("20240601_sweep_SPY") == "other"
+
+
+def test_missing_file_alerts_only_for_daily_runs(tmp_path: Path) -> None:
+    """missing_file alerts only apply to daily runs, not replay or factors."""
+    # Daily run with missing artifacts -> should get missing_file alerts
+    daily_run = tmp_path / "20240601_daily_momentum_M"
+    daily_run.mkdir()
+    (daily_run / "summary.json").write_text(json.dumps({"asof": "2024-06-01", "turnover": 0.1, "portfolio_beta": 0.0}), encoding="utf-8")
+    # No risk_checks.json, daily_report.md, orders_to_place.csv
+
+    # Replay run with missing artifacts -> should NOT get missing_file alerts
+    replay_run = tmp_path / "20240601_replay_SPY_1m"
+    replay_run.mkdir()
+    (replay_run / "summary.json").write_text(json.dumps({"asof": "2024-06-01"}), encoding="utf-8")
+    # No risk_checks, daily_report, orders_to_place
+
+    # Factors run with missing artifacts -> should NOT get missing_file alerts
+    factors_run = tmp_path / "20240601_factors_combo_M"
+    factors_run.mkdir()
+    (factors_run / "summary.json").write_text(json.dumps({"asof": "2024-06-01"}), encoding="utf-8")
+    # No risk_checks, daily_report, orders_to_place
+
+    out = tmp_path / "monitor"
+    result = _run_monitor(tmp_path, out, n=10, turnover_threshold=0.5, beta_threshold=0.5, cost_spike_factor=2.0)
+
+    missing_alerts = [a for a in result["alerts"] if a["type"] == "missing_file"]
+    missing_runs = {a["run"] for a in missing_alerts}
+
+    assert "20240601_daily_momentum_M" in missing_runs
+    assert "20240601_replay_SPY_1m" not in missing_runs
+    assert "20240601_factors_combo_M" not in missing_runs
+    assert len(missing_alerts) >= 3  # daily run missing risk_checks, daily_report, orders_to_place
