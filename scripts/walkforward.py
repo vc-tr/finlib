@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.backtest import Backtester
-from src.backtest.walkforward import run_walkforward
+from src.backtest.walkforward import run_walkforward_legacy
 from src.strategies import MomentumStrategy
 
 
@@ -39,7 +39,7 @@ def main() -> None:
     def strategy_fn(p: pd.Series) -> tuple:
         return strategy.backtest_returns(p)
 
-    folds, agg_result = run_walkforward(
+    folds, agg_result = run_walkforward_legacy(
         prices,
         strategy_fn,
         train_days=args.train_days,
