@@ -19,10 +19,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from src.backtest import Backtester
-from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe, estimate_beta
+from src.factors import (
+    compute_factor,
+    compute_factors,
+    build_portfolio,
+    get_universe,
+    estimate_beta,
+    rolling_portfolio_beta,
+    forward_returns,
+    cross_sectional_ic,
+    summarize_ic,
+)
 from src.factors.factors import get_prices_wide
 from src.factors.ensemble import combine_factors
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral, apply_constraints
+from src.factors.portfolio import (
+    apply_rebalance_costs,
+    _resample_weights_to_rebalance,
+    apply_beta_neutral,
+    apply_constraints,
+    rebalance_dates,
+    weights_at_rebalance,
+)
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
 
@@ -85,9 +102,11 @@ def _run_factor_backtest(
         5: beta_before (Series or None)
         6: beta_after (Series or None)
         7: hedge_weight (Series or None)
+        8: n_rebalance_events (int)
     """
-    weights = cross_sectional_rank(
+    weights = weights_at_rebalance(
         factor_df,
+        rebalance=rebalance,
         top_k=top_k,
         bottom_k=bottom_k,
         method="zscore",
@@ -133,7 +152,9 @@ def _run_factor_backtest(
     result = bt.run(port_ret)
     turnover = w_held.diff().abs().sum(axis=1).fillna(0)
     positions = w_held.sum(axis=1)
-    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight
+    rb_dates = rebalance_dates(factor_df.index, rebalance)
+    n_rebalance = len(rb_dates)
+    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight, n_rebalance
 
 
 def _get_factor_df(
@@ -254,6 +275,7 @@ def _run_walkforward(
 
     if not all_returns:
         agg = {"mean_sharpe": 0, "median_sharpe": 0, "agg_sharpe": 0, "n_folds": 0}
+        agg_ret = None
     else:
         agg_ret = pd.concat(all_returns).sort_index()
         agg_ret = agg_ret[~agg_ret.index.duplicated(keep="first")]
@@ -270,6 +292,8 @@ def _run_walkforward(
     out = {"per_fold": per_fold, "aggregated": agg}
     if combo_weights_per_fold:
         out["combo_weights_per_fold"] = combo_weights_per_fold
+    if agg_ret is not None:
+        out["all_returns"] = agg_ret
     return out
 
 
@@ -344,6 +368,20 @@ def main() -> None:
         agg = wf_result["aggregated"]
         print(f"  Mean Sharpe: {agg['mean_sharpe']:.2f}")
         print(f"  Agg Sharpe:  {agg['agg_sharpe']:.2f}")
+
+        # Beta series for walkforward: market returns vs aggregated OOS returns
+        prices_wide = get_prices_wide(df_by_symbol)
+        market_sym = args.market_symbol
+        if market_sym in prices_wide.columns:
+            market_ret = prices_wide[market_sym].pct_change()
+            if "all_returns" in wf_result:
+                agg_ret = wf_result["all_returns"]
+                beta_p = rolling_portfolio_beta(agg_ret, market_ret, window=args.beta_window)
+                beta_p.to_csv(output_dir / "beta_series.csv", header=["beta_p"])
+                agg["beta_mean"] = float(beta_p.dropna().mean())
+                agg["beta_std"] = float(beta_p.dropna().std()) if beta_p.dropna().size > 0 else 0.0
+                agg["beta_max_abs"] = float(beta_p.abs().max()) if beta_p.size > 0 else 0.0
+
         summary = {"walkforward": True, "aggregated": agg, "per_fold": wf_result["per_fold"]}
         if "combo_weights_per_fold" in wf_result:
             summary["combo_weights_per_fold"] = wf_result["combo_weights_per_fold"]
@@ -375,6 +413,11 @@ def main() -> None:
     beta_before = out[5] if len(out) > 5 else None
     beta_after = out[6] if len(out) > 6 else None
     hedge_weight = out[7] if len(out) > 7 else None
+    n_rebalance = out[8] if len(out) > 8 else 0
+
+    # Turnover occurs on execution days (rebalance date + execution_delay)
+    turnover_on_exec = turnover[turnover > 1e-10]
+    mean_turnover_on_exec = turnover_on_exec.mean() * annualization if len(turnover_on_exec) > 0 else 0.0
 
     print("[3/4] Results:")
     print("-" * 50)
@@ -382,13 +425,40 @@ def main() -> None:
     print(f"  Total Ret:   {result.total_return:.2%}")
     print(f"  Max DD:      {result.max_drawdown:.2%}")
     print(f"  Trades:      {result.n_trades}")
+    print(f"  Rebalances:  {n_rebalance}")
     print(f"  Turnover:    {turnover.mean() * annualization:.2f} (ann.)")
+    print(f"  Turnover (on exec days):      {mean_turnover_on_exec:.2f} (ann.)")
     print("-" * 50)
 
     if combo_weights is not None:
         (output_dir / "combo_weights.json").write_text(
             json.dumps(combo_weights, indent=2), encoding="utf-8"
         )
+
+    # IC research metrics (for any factor including combo)
+    ic_horizons = [1, 5, 21]
+    fwd = forward_returns(prices, horizons=ic_horizons)
+    ic_summary = {}
+    ic_preview = {}
+    for h in ic_horizons:
+        ic_series = cross_sectional_ic(factor_df, fwd[h], method="spearman")
+        ic_series.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
+        ic_summary[str(h)] = summarize_ic(ic_series)
+        ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
+
+    (output_dir / "ic_summary.json").write_text(
+        json.dumps(ic_summary, indent=2), encoding="utf-8"
+    )
+
+    # Market beta exposure: rolling beta of portfolio vs market
+    beta_series = None
+    market_sym = args.market_symbol
+    if market_sym in prices.columns:
+        market_ret = prices[market_sym].pct_change()
+        beta_series = rolling_portfolio_beta(
+            result.returns, market_ret, window=args.beta_window
+        )
+        beta_series.to_csv(output_dir / "beta_series.csv", header=["beta_p"])
 
     print("[4/4] Writing tear-sheet...")
     prices_1d = prices.mean(axis=1)
@@ -409,9 +479,13 @@ def main() -> None:
         weights=w_held,
         turnover_series=turnover,
         prices_wide=prices,
+        ic_summary=ic_summary,
+        ic_preview=ic_preview,
         portfolio_beta_before=beta_before,
         portfolio_beta_after=beta_after,
         hedge_weight=hedge_weight,
+        beta_series=beta_series,
+        beta_neutral=args.beta_neutral,
     )
     summary = {
         "factor": args.factor,

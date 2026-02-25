@@ -6,10 +6,25 @@ import numpy as np
 import pandas as pd
 
 from src.backtest import Backtester
-from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe
+from src.factors import (
+    compute_factor,
+    compute_factors,
+    cross_sectional_rank,
+    build_portfolio,
+    get_universe,
+    forward_returns,
+    cross_sectional_ic,
+    summarize_ic,
+)
 from src.factors.factors import get_prices_wide
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral
-from src.factors.risk import estimate_beta
+from src.factors.portfolio import (
+    apply_rebalance_costs,
+    _resample_weights_to_rebalance,
+    apply_beta_neutral,
+    rebalance_dates,
+    weights_at_rebalance,
+)
+from src.factors.risk import estimate_beta, rolling_portfolio_beta
 
 
 def _synthetic_df_by_symbol(n_dates: int = 300, n_symbols: int = 20, seed: int = 42) -> dict:
@@ -138,6 +153,19 @@ def test_portfolio_tearsheet_exposures_and_holdings(tmp_path: Path) -> None:
     assert "Per-Symbol Contribution" in report
 
 
+def test_rolling_portfolio_beta_portfolio_equals_market_times_two() -> None:
+    """Portfolio = market * 2 => rolling beta ~ 2."""
+    rng = np.random.RandomState(42)
+    n = 400
+    idx = pd.date_range("2020-01-01", periods=n, freq="B")
+    market_ret = pd.Series(rng.randn(n) * 0.01, index=idx)
+    port_ret = market_ret * 2  # exact 2x exposure
+    beta_p = rolling_portfolio_beta(port_ret, market_ret, window=252)
+    # After warmup, beta should be ~2
+    beta_tail = beta_p.dropna().iloc[-50:]
+    assert 1.8 < beta_tail.mean() < 2.2, f"Expected beta ~2, got {beta_tail.mean()}"
+
+
 def test_estimate_beta_known_relation() -> None:
     """Beta estimator recovers known synthetic relation: asset = 1.5 * market + noise."""
     rng = np.random.RandomState(42)
@@ -169,3 +197,85 @@ def test_beta_neutral_reduces_absolute_beta() -> None:
     betas["B"] = 0.8
     w_adj, beta_before, beta_after = apply_beta_neutral(weights, betas, market_symbol="SPY")
     assert (beta_after.abs() < beta_before.abs() + 0.01).all()
+
+
+def test_rebalance_dates_monthly() -> None:
+    """Monthly rebalance produces dates only at month boundaries."""
+    idx = pd.date_range("2020-01-01", periods=100, freq="B")
+    rb = rebalance_dates(idx, "M")
+    assert len(rb) > 0
+    for d in rb:
+        assert d == idx[idx <= d][-1]
+    months = rb.to_series().dt.to_period("M").unique()
+    assert len(months) == len(rb)
+
+
+def test_weights_at_rebalance_changes_only_at_month_boundaries() -> None:
+    """Monthly rebalance: weight changes only at month boundaries."""
+    df_by = _synthetic_df_by_symbol(100, 10, seed=42)
+    factor_df = compute_factor(df_by, "reversal_5d")
+    weights = weights_at_rebalance(factor_df, "M", top_k=2, bottom_k=2)
+    turnover = weights.diff().abs().sum(axis=1).fillna(0)
+    rb = rebalance_dates(weights.index, "M")
+    non_rb = weights.index.difference(rb)
+    if len(non_rb) > 0:
+        turnover_non_rb = turnover.reindex(non_rb).dropna()
+        assert (turnover_non_rb < 1e-10).all(), "Turnover should be ~0 on non-rebalance days"
+
+
+def test_turnover_zero_on_non_rebalance_days() -> None:
+    """Turnover is zero (within tolerance) on non-execution days."""
+    df_by = _synthetic_df_by_symbol(80, 8, seed=123)
+    factor_df = compute_factor(df_by, "momentum_12_1")
+    weights = weights_at_rebalance(factor_df, "M", top_k=2, bottom_k=2)
+    w_held = _resample_weights_to_rebalance(weights, "M").shift(1).fillna(0)
+    turnover = w_held.diff().abs().sum(axis=1).fillna(0)
+    idx = turnover.index
+    rb = rebalance_dates(idx, "M")
+    exec_dates = set()
+    for d in rb:
+        later = idx[idx > d]
+        if len(later) > 0:
+            exec_dates.add(later[0])
+    non_exec = idx.difference(exec_dates)
+    non_exec = non_exec[1:]
+    if len(non_exec) > 0:
+        to_non = turnover.reindex(non_exec).dropna()
+        assert (to_non < 1e-8).all(), f"Turnover on non-exec days: {to_non[to_non >= 1e-8]}"
+
+
+def test_ic_positive_when_factor_predicts_returns() -> None:
+    """Synthetic dataset where factor perfectly predicts returns => positive mean IC."""
+    rng = np.random.RandomState(42)
+    n_dates, n_symbols = 200, 30
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    signal = rng.randn(n_dates, n_symbols) * 0.5
+    fwd_ret = signal + rng.randn(n_dates, n_symbols) * 0.2
+    factor_df = pd.DataFrame(signal, index=idx, columns=[f"S{i}" for i in range(n_symbols)])
+    fwd_ret_df = pd.DataFrame(fwd_ret, index=idx, columns=factor_df.columns)
+    ic_series = cross_sectional_ic(factor_df, fwd_ret_df, method="spearman")
+    mean_ic = ic_series.dropna().mean()
+    assert mean_ic > 0.5, f"Expected mean IC > 0.5 when factor predicts returns, got {mean_ic}"
+
+
+def test_ic_constant_factor_no_crash() -> None:
+    """Constant factor => IC all NaN but code does not crash; summary handles n=0 gracefully."""
+    rng = np.random.RandomState(43)
+    n_dates, n_symbols = 100, 15
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    factor_df = pd.DataFrame(
+        np.ones((n_dates, n_symbols)),
+        index=idx,
+        columns=[f"S{i}" for i in range(n_symbols)],
+    )
+    fwd_ret_df = pd.DataFrame(
+        rng.randn(n_dates, n_symbols) * 0.01,
+        index=idx,
+        columns=factor_df.columns,
+    )
+    ic_series = cross_sectional_ic(factor_df, fwd_ret_df, method="spearman")
+    assert ic_series.isna().all(), "Constant factor should have all NaN IC"
+    out = summarize_ic(ic_series)
+    assert out["n"] == 0
+    assert np.isnan(out["mean_ic"])
+    assert np.isnan(out["t_stat"])

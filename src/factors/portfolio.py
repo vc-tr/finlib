@@ -3,10 +3,37 @@ Portfolio construction from cross-sectional weights.
 
 Resamples weights to rebalance frequency, applies execution delay,
 beta-neutralization, and constraints (max_gross, max_net).
+
+True rebalance: compute target weights ONLY on rebalance dates,
+forward-fill between rebalances. Turnover occurs only at rebalance timestamps.
 """
 
 import pandas as pd
 from typing import Optional, Tuple, Union
+
+
+def rebalance_dates(index: pd.DatetimeIndex, rebalance: str) -> pd.DatetimeIndex:
+    """
+    Return DatetimeIndex of rebalance points for a given index.
+
+    Args:
+        index: Full date index (e.g. daily)
+        rebalance: "D" (daily), "W" (week-end), "M" (month-end)
+
+    Returns:
+        DatetimeIndex of dates when rebalancing occurs
+    """
+    if rebalance == "D":
+        return index
+    if rebalance == "W":
+        freq = "W-FRI"
+    elif rebalance == "M":
+        freq = "ME"
+    else:
+        freq = "ME"
+    # Last date of each period
+    rb = index.to_series().resample(freq).last().dropna()
+    return rb.index.intersection(index)
 
 
 def apply_constraints(
@@ -92,6 +119,50 @@ def _resample_weights_to_rebalance(weights: pd.DataFrame, rebalance: str) -> pd.
     # Take last weight of each period, then ffill to next period
     rb = weights.resample(freq).last()
     return rb.reindex(weights.index).ffill().fillna(0)
+
+
+def weights_at_rebalance(
+    factor_df: pd.DataFrame,
+    rebalance: str,
+    top_k: int = 10,
+    bottom_k: int = 10,
+    method: str = "zscore",
+    long_short: bool = True,
+    gross_leverage: float = 1.0,
+    max_weight: float = 0.1,
+) -> pd.DataFrame:
+    """
+    Compute target weights ONLY on rebalance dates, forward-fill between rebalances.
+
+    True rebalance: rank only on rebalance dates; hold constant between.
+    Trades/turnover occur only at rebalance timestamps.
+
+    Args:
+        factor_df: Daily factor values (date x symbol)
+        rebalance: "D"|"W"|"M"
+        top_k, bottom_k, method, long_short, gross_leverage, max_weight: passed to cross_sectional_rank
+
+    Returns:
+        Weights (date x symbol), full index, 0 before first rebalance, ffill between.
+    """
+    from src.factors.ranking import cross_sectional_rank
+
+    rb_dates = rebalance_dates(factor_df.index, rebalance)
+    common = factor_df.index.intersection(rb_dates)
+    if len(common) == 0:
+        return pd.DataFrame(0.0, index=factor_df.index, columns=factor_df.columns)
+
+    factor_rb = factor_df.loc[common]
+    weights_rb = cross_sectional_rank(
+        factor_rb,
+        top_k=top_k,
+        bottom_k=bottom_k,
+        method=method,
+        long_short=long_short,
+        gross_leverage=gross_leverage,
+        max_weight=max_weight,
+    )
+    return weights_rb.reindex(factor_df.index).ffill().fillna(0)
 
 
 def build_portfolio(
