@@ -130,6 +130,7 @@ A: `python scripts/run_demo.py --config configs/demo_spy_momentum.json`
 
 ## Documentation
 
+- [docs/STRUCTURE.md](docs/STRUCTURE.md) — Package layout, scripts, how to run demos
 - [docs/REALITY_CHECK.md](docs/REALITY_CHECK.md) — What works, what's broken
 - [docs/RESEARCH_METHOD.md](docs/RESEARCH_METHOD.md) — Data assumptions, evaluation protocol
 - [docs/UNIVERSES.md](docs/UNIVERSES.md) — Universe definitions (liquid_etfs, sector_etfs, bond_etfs, etc.)
