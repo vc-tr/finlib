@@ -200,6 +200,19 @@ def generate_tearsheet(
         if (out / f"{p}.png").exists():
             report_lines.append(f"![{p}]({p}.png)")
             report_lines.append("")
+
+    # Notes section
+    notes = [
+        "- **delay_bars** prevents lookahead: signals execute at bar t + delay.",
+        "- **Costs** (fee/slip/spread) are applied per trade.",
+        "- **decision_interval_bars** reduces churn by throttling position changes.",
+    ]
+    cfg = config or {}
+    if cfg.get("interval") == "1m":
+        notes.append(
+            "- **Warning**: Naive intraday momentum at 1m is typically cost-sensitive; tune via `sweep_momentum`."
+        )
+    report_lines.extend(["", "## Notes", ""] + notes + [""])
     (out / "REPORT.md").write_text("\n".join(report_lines), encoding="utf-8")
 
     # 9) tearsheet.html (legacy)
