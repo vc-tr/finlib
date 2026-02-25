@@ -6,9 +6,18 @@ import numpy as np
 import pandas as pd
 
 from src.backtest import Backtester
-from src.factors import compute_factor, cross_sectional_rank, build_portfolio, get_universe
+from src.factors import (
+    compute_factor,
+    cross_sectional_rank,
+    build_portfolio,
+    get_universe,
+    forward_returns,
+    information_coefficient,
+    summarize_ic,
+)
 from src.factors.factors import get_prices_wide
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance
+from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral, apply_constraints
+from src.factors.risk import estimate_beta
 
 
 def _synthetic_df_by_symbol(n_dates: int = 300, n_symbols: int = 20, seed: int = 42) -> dict:
@@ -123,3 +132,63 @@ def test_portfolio_tearsheet_exposures_and_holdings(tmp_path: Path) -> None:
     assert "Long count" in report
     assert "holdings_by_date.csv" in report
     assert "Per-Symbol Contribution" in report
+
+
+def test_estimate_beta_known_relation() -> None:
+    """Beta estimator recovers known synthetic relation: asset = 1.5 * market + noise."""
+    rng = np.random.RandomState(42)
+    n = 300
+    idx = pd.date_range("2020-01-01", periods=n, freq="B")
+    mr = pd.Series(rng.randn(n) * 0.01, index=idx)
+    ar = pd.DataFrame({
+        "A": mr * 1.5 + rng.randn(n) * 0.002,
+        "B": mr * 0.5 + rng.randn(n) * 0.002,
+    }, index=idx)
+    betas = estimate_beta(ar, mr, window=100)
+    assert betas.shape == (n, 2)
+    beta_a = betas["A"].dropna().iloc[-1]
+    beta_b = betas["B"].dropna().iloc[-1]
+    assert 1.2 < beta_a < 1.8
+    assert 0.3 < beta_b < 0.7
+
+
+def test_beta_neutral_reduces_absolute_beta() -> None:
+    """Beta-neutralization reduces |portfolio beta|."""
+    rng = np.random.RandomState(42)
+    n = 200
+    idx = pd.date_range("2020-01-01", periods=n, freq="B")
+    weights = pd.DataFrame(0.0, index=idx, columns=["A", "B", "SPY"])
+    weights.loc[:, "A"] = 0.5
+    weights.loc[:, "B"] = -0.5
+    betas = pd.DataFrame(0.0, index=idx, columns=["A", "B"])
+    betas["A"] = 1.2
+    betas["B"] = 0.8
+    w_adj, beta_before, beta_after = apply_beta_neutral(weights, betas, market_symbol="SPY")
+    assert (beta_after.abs() < beta_before.abs() + 0.01).all()
+
+
+def test_ic_positive_when_factor_predicts_returns() -> None:
+    """IC is positive when factor predicts forward returns (synthetic data)."""
+    rng = np.random.RandomState(42)
+    n_dates, n_symbols = 200, 30
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    # Factor = signal that predicts fwd returns (add noise)
+    signal = rng.randn(n_dates, n_symbols) * 0.5
+    fwd_ret = signal + rng.randn(n_dates, n_symbols) * 0.3  # factor drives returns
+    factor_df = pd.DataFrame(signal, index=idx, columns=[f"S{i}" for i in range(n_symbols)])
+    fwd_ret_df = pd.DataFrame(fwd_ret, index=idx, columns=factor_df.columns)
+    ic_series = information_coefficient(factor_df, fwd_ret_df, method="spearman")
+    mean_ic = ic_series.dropna().mean()
+    assert mean_ic > 0.5, f"Expected IC > 0.5 when factor predicts returns, got {mean_ic}"
+
+
+def test_summarize_ic_t_stat_finite() -> None:
+    """summarize_ic returns finite t_stat and correct n."""
+    rng = np.random.RandomState(43)
+    n = 100
+    idx = pd.date_range("2020-01-01", periods=n, freq="B")
+    ic_series = pd.Series(rng.randn(n) * 0.1 + 0.05, index=idx)
+    out = summarize_ic(ic_series)
+    assert "t_stat" in out
+    assert np.isfinite(out["t_stat"]), f"t_stat must be finite, got {out['t_stat']}"
+    assert out["n"] == n

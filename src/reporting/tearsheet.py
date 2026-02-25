@@ -75,6 +75,11 @@ def generate_tearsheet(
     weights: Optional[pd.DataFrame] = None,
     turnover_series: Optional[pd.Series] = None,
     prices_wide: Optional[pd.DataFrame] = None,
+    ic_summary: Optional[Dict[str, Dict[str, float]]] = None,
+    ic_preview: Optional[Dict[str, list]] = None,
+    portfolio_beta_before: Optional[pd.Series] = None,
+    portfolio_beta_after: Optional[pd.Series] = None,
+    hedge_weight: Optional[pd.Series] = None,
 ) -> None:
     """
     Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
@@ -93,6 +98,11 @@ def generate_tearsheet(
         weights: Optional weights DataFrame (date x symbol) for portfolio reporting
         turnover_series: Optional turnover series (use when weights provided)
         prices_wide: Optional prices DataFrame (date x symbol) for contribution
+        ic_summary: Optional dict horizon -> {mean_ic, std_ic, ir, t_stat, n} for REPORT
+        ic_preview: Optional dict horizon -> last 10 IC values for REPORT
+        portfolio_beta_before: Portfolio beta before hedge (beta-neutral)
+        portfolio_beta_after: Portfolio beta after hedge (beta-neutral)
+        hedge_weight: Hedge weight (e.g. SPY) over time (beta-neutral)
     """
     out = Path(output_dir)
     _ensure_dir(out)
@@ -176,6 +186,34 @@ def generate_tearsheet(
     fig.savefig(out / "turnover.png", dpi=100)
     plt.close()
 
+    # 6b) portfolio_beta.png (when beta-neutral)
+    if portfolio_beta_before is not None and portfolio_beta_after is not None:
+        common = prices.index.intersection(portfolio_beta_before.index).intersection(portfolio_beta_after.index)
+        b_bef = portfolio_beta_before.reindex(common).ffill().fillna(0)
+        b_aft = portfolio_beta_after.reindex(common).ffill().fillna(0)
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.plot(b_bef.index, b_bef.values, label="Beta (before hedge)", color="coral", alpha=0.8)
+        ax.plot(b_aft.index, b_aft.values, label="Beta (after hedge)", color="steelblue", alpha=0.8)
+        ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
+        ax.set_title("Portfolio Beta")
+        ax.set_ylabel("Beta")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(out / "portfolio_beta.png", dpi=100)
+        plt.close()
+    if hedge_weight is not None:
+        hw = hedge_weight.reindex(prices.index).ffill().fillna(0)
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.plot(hw.index, hw.values, color="green", alpha=0.8)
+        ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
+        ax.set_title("Hedge Weight (Market)")
+        ax.set_ylabel("Weight")
+        ax.grid(True, alpha=0.3)
+        fig.tight_layout()
+        fig.savefig(out / "hedge_weight.png", dpi=100)
+        plt.close()
+
     # Portfolio/universe extras when weights provided
     exposures_stats: Optional[Dict[str, Any]] = None
     contribution_top: Optional[pd.Series] = None
@@ -225,6 +263,8 @@ def generate_tearsheet(
 
     # 8) REPORT.md
     pngs = ["equity_curve", "drawdown", "rolling_sharpe", "returns_hist", "positions", "turnover"]
+    if portfolio_beta_before is not None:
+        pngs.extend(["portfolio_beta", "hedge_weight"])
     report_lines = [
         "# Backtest Report",
         "",
@@ -237,6 +277,37 @@ def generate_tearsheet(
         if k != "config" and isinstance(v, (str, int, float)):
             report_lines.append(f"| {k} | {v} |")
 
+    cfg = config or {}
+    if cfg.get("combo_weights"):
+        report_lines.extend([
+            "",
+            "## Combo Weights",
+            "",
+            "| Factor | Weight |",
+            "|--------|--------|",
+        ])
+        for name, w in cfg["combo_weights"].items():
+            report_lines.append(f"| {name} | {w:.4f} |")
+        report_lines.append("")
+
+    if portfolio_beta_before is not None and portfolio_beta_after is not None:
+        b_bef = portfolio_beta_before.dropna()
+        b_aft = portfolio_beta_after.dropna()
+        beta_lines = [
+            "",
+            "## Beta-Neutral",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Beta (before hedge, mean) | {float(b_bef.mean()):.2f} |",
+            f"| Beta (after hedge, mean) | {float(b_aft.mean()):.2f} |",
+            f"| |Beta| reduction | {float(b_bef.abs().mean() - b_aft.abs().mean()):.2f} |",
+        ]
+        if hedge_weight is not None:
+            hw = hedge_weight.dropna()
+            beta_lines.append(f"| Hedge weight (mean) | {float(hw.mean()):.2%} |")
+        beta_lines.append("")
+        report_lines.extend(beta_lines)
     if exposures_stats:
         report_lines.extend([
             "",
@@ -273,6 +344,23 @@ def generate_tearsheet(
             "",
         ])
 
+    if ic_summary and ic_preview:
+        report_lines.extend([
+            "## Information Coefficient",
+            "",
+            "| Horizon | mean_ic | std_ic | IR | t_stat | n |",
+            "|---------|---------|--------|-----|--------|---|",
+        ])
+        for h, s in sorted(ic_summary.items(), key=lambda x: int(x[0])):
+            report_lines.append(
+                f"| {h} | {s.get('mean_ic', 0):.4f} | {s.get('std_ic', 0):.4f} | "
+                f"{s.get('ir', 0):.2f} | {s.get('t_stat', 0):.2f} | {s.get('n', 0)} |"
+            )
+        report_lines.append("")
+        for h, vals in sorted(ic_preview.items(), key=lambda x: int(x[0])):
+            report_lines.append(f"**IC(h={h}) last 10:** " + ", ".join(f"{v:.4f}" for v in vals))
+            report_lines.append("")
+
     report_lines.extend(["", "## Charts", ""])
     for p in pngs:
         if (out / f"{p}.png").exists():
@@ -285,7 +373,6 @@ def generate_tearsheet(
         "- **Costs** (fee/slip/spread) are applied per trade.",
         "- **decision_interval_bars** reduces churn by throttling position changes.",
     ]
-    cfg = config or {}
     if cfg.get("interval") == "1m":
         notes.append(
             "- **Warning**: Naive intraday momentum at 1m is typically cost-sensitive; tune via `sweep_momentum`."
