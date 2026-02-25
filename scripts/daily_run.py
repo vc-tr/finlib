@@ -170,6 +170,7 @@ def _run_daily(
         net_w = sum(positions.get(s, 0) * prices_ts.get(s, 0) for s in positions) / pv if pv > 0 else 0
         max_single_w = max((abs(positions.get(s, 0) * prices_ts.get(s, 0)) / pv for s in positions), default=0.0) if pv > 0 else 0.0
         beta_p = 0.0
+        state_bootstrap = portfolio["asof"] is None
         risk_checks = {
             "gross_weight": gross_w,
             "net_weight": net_w,
@@ -179,6 +180,7 @@ def _run_daily(
             "max_net_breach": False,
             "max_position_breach": False,
             "beta_breach": False,
+            "state_bootstrap": state_bootstrap,
         }
     else:
         # 3) Delta orders
@@ -241,6 +243,7 @@ def _run_daily(
                     if s in betas.columns:
                         beta_p += (q * prices_ts.get(s, 0) / new_pv) * betas.loc[asof, s] if new_pv > 0 else 0
 
+        state_bootstrap = portfolio["asof"] is None
         risk_checks = {
             "gross_weight": gross_w,
             "net_weight": net_w,
@@ -250,6 +253,7 @@ def _run_daily(
             "max_net_breach": max_net is not None and abs(net_w) > max_net,
             "max_position_breach": max_position_weight is not None and max_single_w > max_position_weight,
             "beta_breach": abs(beta_p) > beta_threshold,
+            "state_bootstrap": state_bootstrap,
         }
 
         # 6) Expected costs (build trades from orders)
@@ -442,7 +446,9 @@ def main() -> None:
     )
 
     if "error" in result:
-        print(f"[ERROR] {result['error']}")
+        err_msg = result["error"]
+        (output_dir / "ERROR.txt").write_text(err_msg, encoding="utf-8")
+        print(f"[ERROR] {err_msg}")
         sys.exit(1)
 
     print("[3/3] Done:")
