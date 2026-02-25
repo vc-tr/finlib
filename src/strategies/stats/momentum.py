@@ -9,26 +9,60 @@ import pandas as pd
 from typing import Tuple
 
 
+def _signals_to_position_with_hold(signals: pd.Series, min_hold_bars: int) -> pd.Series:
+    """
+    Convert raw signals to position with minimum hold.
+    Position changes only when: (a) flat->directional, or (b) held min_hold_bars and signal differs.
+    Reduces trade spam from bar-to-bar signal flips.
+    """
+    if min_hold_bars <= 1:
+        return signals
+    out = pd.Series(0.0, index=signals.index)
+    pos = 0.0
+    bars_held = 0
+    for i in range(len(signals)):
+        sig = signals.iloc[i]
+        if np.isnan(sig):
+            sig = 0.0
+        if pos == 0:
+            pos = sig
+            bars_held = 1 if sig != 0 else 0
+        elif sig != pos:
+            if bars_held >= min_hold_bars or sig == 0:
+                pos = sig
+                bars_held = 1 if sig != 0 else 0
+            else:
+                bars_held += 1
+        else:
+            bars_held += 1
+        out.iloc[i] = pos
+    return out
+
+
 class MomentumStrategy:
     """
     Momentum strategy based on lookback returns.
     
     Signal = sign(return over lookback period)
     Long when past return > 0, short when < 0.
+    Uses min_hold_bars to reduce churn (default 1 for daily, 5 for minute).
     """
     
     def __init__(
         self,
         lookback: int = 20,
         threshold: float = 0.0,
+        min_hold_bars: int = 1,
     ):
         """
         Args:
             lookback: Period for momentum calculation
             threshold: Minimum return to trigger (0 = any positive/negative)
+            min_hold_bars: Min bars to hold position before changing (1 for 1d, 5 for 1m)
         """
         self.lookback = lookback
         self.threshold = threshold
+        self.min_hold_bars = min_hold_bars
     
     def compute_momentum(self, prices: pd.Series) -> pd.Series:
         """Momentum = (price / price_n_lookback_ago) - 1"""
@@ -36,17 +70,24 @@ class MomentumStrategy:
     
     def generate_signals(self, prices: pd.Series) -> pd.Series:
         """
-        Generate signals: 1 = long, -1 = short, 0 = flat.
+        Generate raw signals: 1 = long, -1 = short, 0 = flat.
+        Signal at close t = position held during bar t+1 (backtester applies shift).
         """
         mom = self.compute_momentum(prices)
         signals = pd.Series(0.0, index=prices.index)
         signals[mom > self.threshold] = 1
         signals[mom < -self.threshold] = -1
-        return signals.shift(1)  # avoid lookahead
+        return signals
+    
+    def generate_positions(self, prices: pd.Series) -> pd.Series:
+        """Generate position series with min_hold applied (use for backtest)."""
+        raw = self.generate_signals(prices)
+        return _signals_to_position_with_hold(raw, self.min_hold_bars)
     
     def backtest_returns(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
-        """Returns (signals, strategy_returns)."""
-        signals = self.generate_signals(prices)
+        """Returns (positions, strategy_returns). Positions have min_hold applied."""
+        positions = self.generate_positions(prices)
         returns = prices.pct_change()
-        strategy_returns = signals * returns
-        return signals, strategy_returns
+        # Backtester expects positions[t]=pos during t+1; it will shift(1) internally
+        strategy_returns = positions.shift(1).fillna(0) * returns
+        return positions, strategy_returns

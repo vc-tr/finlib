@@ -1,13 +1,13 @@
 """
 Tear-sheet report generation for backtest results.
 
-Produces HTML report and PNG charts: equity curve, drawdown, rolling Sharpe,
-returns histogram, exposure, turnover, summary table.
+Produces: summary.json, REPORT.md, equity_curve.png, drawdown.png, rolling_sharpe.png,
+returns_hist.png, turnover.png, positions.png, tearsheet.html
 """
 
-import io
+import json
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 import matplotlib
 matplotlib.use("Agg")
@@ -24,8 +24,8 @@ def _ensure_dir(path: Path) -> Path:
     return path
 
 
-def _summary_metrics(result: BacktestResult, annualization: float = 252) -> dict:
-    """Compute summary metrics for the tear-sheet table."""
+def _summary_metrics(result: BacktestResult, annualization: float = 252) -> Dict[str, Any]:
+    """Compute summary metrics (numeric + formatted strings)."""
     ret = result.returns
     if len(ret) == 0:
         return {}
@@ -55,6 +55,12 @@ def _summary_metrics(result: BacktestResult, annualization: float = 252) -> dict
         "Avg Win": f"{avg_win:.2%}",
         "Avg Loss": f"{avg_loss:.2%}",
         "Trades": str(result.n_trades),
+        "_cagr": cagr,
+        "_sharpe": result.sharpe_ratio,
+        "_sortino": sortino,
+        "_max_dd": result.max_drawdown,
+        "_vol": vol,
+        "_trades": result.n_trades,
     }
 
 
@@ -63,19 +69,21 @@ def generate_tearsheet(
     prices: pd.Series,
     signals: pd.Series,
     output_dir: Union[str, Path],
-    rolling_window: int = 63,
+    rolling_window: Optional[int] = None,
     annualization: float = 252,
+    config: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
-    Generate tear-sheet: HTML report + PNG charts.
+    Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
 
     Args:
         result: BacktestResult from Backtester.run or run_from_signals
         prices: Price series (for alignment)
         signals: Position/signal series
         output_dir: Directory for output files
-        rolling_window: Window for rolling Sharpe (default 63 = ~3 months)
+        rolling_window: Window for rolling Sharpe (default: ~63 bars or 20% of data)
         annualization: Annualization factor (252 for daily)
+        config: Optional run config for summary.json
     """
     out = Path(output_dir)
     _ensure_dir(out)
@@ -84,7 +92,9 @@ def generate_tearsheet(
     returns = result.returns.reindex(prices.index).fillna(0)
     turnover = compute_turnover(signals).reindex(prices.index).fillna(0)
 
-    # 1) Equity curve
+    rw = rolling_window or min(63, max(20, len(returns) // 5))
+
+    # 1) equity_curve.png
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(cum.index, cum.values, color="steelblue", linewidth=1.5)
     ax.set_title("Equity Curve")
@@ -95,7 +105,7 @@ def generate_tearsheet(
     fig.savefig(out / "equity_curve.png", dpi=100)
     plt.close()
 
-    # 2) Drawdown curve
+    # 2) drawdown.png
     rolling_max = cum.cummax()
     drawdown = (cum - rolling_max) / rolling_max
     fig, ax = plt.subplots(figsize=(10, 3))
@@ -107,33 +117,33 @@ def generate_tearsheet(
     fig.savefig(out / "drawdown.png", dpi=100)
     plt.close()
 
-    # 3) Rolling Sharpe
-    if len(returns) >= rolling_window:
+    # 3) rolling_sharpe.png
+    if len(returns) >= rw:
         rolling_sharpe = (
-            returns.rolling(rolling_window).mean()
-            / returns.rolling(rolling_window).std().replace(0, np.nan)
+            returns.rolling(rw).mean()
+            / returns.rolling(rw).std().replace(0, np.nan)
             * np.sqrt(annualization)
         )
         fig, ax = plt.subplots(figsize=(10, 3))
         ax.plot(rolling_sharpe.index, rolling_sharpe.values, color="green", alpha=0.8)
-        ax.set_title(f"Rolling Sharpe ({rolling_window}d)")
+        ax.set_title(f"Rolling Sharpe ({rw} bars)")
         ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
         ax.grid(True, alpha=0.3)
         fig.tight_layout()
         fig.savefig(out / "rolling_sharpe.png", dpi=100)
         plt.close()
 
-    # 4) Histogram of daily returns
+    # 4) returns_hist.png
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.hist(returns.dropna(), bins=50, color="steelblue", alpha=0.7, edgecolor="white")
     ax.axvline(0, color="black", linestyle="--")
-    ax.set_title("Daily Returns Distribution")
+    ax.set_title("Returns Distribution")
     ax.set_xlabel("Return")
     fig.tight_layout()
-    fig.savefig(out / "returns_histogram.png", dpi=100)
+    fig.savefig(out / "returns_hist.png", dpi=100)
     plt.close()
 
-    # 5) Exposure / position over time
+    # 5) positions.png
     fig, ax = plt.subplots(figsize=(10, 3))
     ax.fill_between(signals.index, signals.values, 0, color="steelblue", alpha=0.5)
     ax.set_title("Position (Exposure)")
@@ -141,23 +151,62 @@ def generate_tearsheet(
     ax.set_ylim(-1.5, 1.5)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(out / "exposure.png", dpi=100)
+    fig.savefig(out / "positions.png", dpi=100)
     plt.close()
 
-    # 6) Turnover
+    # 6) turnover.png
     fig, ax = plt.subplots(figsize=(10, 3))
     ax.bar(turnover.index, turnover.values, width=1, color="gray", alpha=0.6)
-    ax.set_title("Daily Turnover")
+    ax.set_title("Turnover")
     ax.set_ylabel("|ΔPosition|")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out / "turnover.png", dpi=100)
     plt.close()
 
-    # 7) Summary table HTML
     metrics = _summary_metrics(result, annualization)
+    summary = {k: v for k, v in metrics.items() if not k.startswith("_")}
+    if config:
+        summary["config"] = config
+
+    # 7) summary.json
+    summary_json = {
+        "sharpe": result.sharpe_ratio,
+        "total_return": result.total_return,
+        "max_drawdown": result.max_drawdown,
+        "n_trades": result.n_trades,
+        "win_rate": result.win_rate,
+        "cagr": metrics.get("_cagr"),
+        "vol": metrics.get("_vol"),
+        "config": config or {},
+    }
+    (out / "summary.json").write_text(json.dumps(summary_json, indent=2), encoding="utf-8")
+
+    # 8) REPORT.md
+    pngs = ["equity_curve", "drawdown", "rolling_sharpe", "returns_hist", "positions", "turnover"]
+    report_lines = [
+        "# Backtest Report",
+        "",
+        "## Summary",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+    ]
+    for k, v in summary.items():
+        if k != "config" and isinstance(v, (str, int, float)):
+            report_lines.append(f"| {k} | {v} |")
+    report_lines.extend(["", "## Charts", ""])
+    for p in pngs:
+        if (out / f"{p}.png").exists():
+            report_lines.append(f"![{p}]({p}.png)")
+            report_lines.append("")
+    (out / "REPORT.md").write_text("\n".join(report_lines), encoding="utf-8")
+
+    # 9) tearsheet.html (legacy)
     rows = "\n".join(
-        f"    <tr><td>{k}</td><td>{v}</td></tr>" for k, v in metrics.items()
+        f"    <tr><td>{k}</td><td>{v}</td></tr>"
+        for k, v in summary.items()
+        if k != "config" and isinstance(v, (str, int, float))
     )
     img_refs = "\n".join(
         f'  <p><img src="{f.name}" alt="{f.stem}" width="800"/></p>'

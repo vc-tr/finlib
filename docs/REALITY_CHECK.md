@@ -107,3 +107,17 @@
 | test_lstm.py | - | collect error | torch import |
 | test_model_variants.py | - | collect error | torch import |
 | test_train.py | - | collect error | torch import |
+
+---
+
+## run_demo.py — Exact Files Used
+
+| File | Role |
+|------|------|
+| `scripts/run_demo.py` | CLI entry point |
+| `src/pipeline/data_fetcher_yahoo.py` | YahooDataFetcher.fetch_ohlcv |
+| `src/pipeline/pipeline.py` | reindex_and_backfill (for 1m/5m) |
+| `src/strategies/stats/momentum.py` | MomentumStrategy |
+| `src/backtest/engine.py` | Backtester.run_from_signals |
+| `src/backtest/execution.py` | ExecutionConfig, apply_execution_realism |
+| `src/reporting/tearsheet.py` | generate_tearsheet → output/ |

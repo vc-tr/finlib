@@ -40,8 +40,9 @@ def main():
 
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
     df = fetcher.fetch_ohlcv(args.symbol, args.interval, period=args.period)
-    if args.interval == "1m":
-        df = reindex_and_backfill(df)
+    if args.interval in ("1m", "5m"):
+        freq = "1min" if args.interval == "1m" else "5min"
+        df = reindex_and_backfill(df, freq=freq)
     df = df.dropna()
     close = df["close"]
 

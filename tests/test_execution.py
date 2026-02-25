@@ -97,3 +97,4 @@ def test_tearsheet_generates_files() -> None:
         assert (out / "tearsheet.html").exists()
         assert (out / "equity_curve.png").exists()
         assert (out / "drawdown.png").exists()
+        assert (out / "summary.json").exists()

@@ -1,17 +1,24 @@
 # src/pipeline/pipeline.py
 import pandas as pd
+from typing import Optional
 
-def reindex_and_backfill(df: pd.DataFrame) -> pd.DataFrame:
+
+def reindex_and_backfill(df: pd.DataFrame, freq: Optional[str] = None) -> pd.DataFrame:
     """
-    1. Build a complete 1-min DatetimeIndex from min→max timestamp
+    1. Build a complete DatetimeIndex from min→max timestamp
     2. Reindex df to that index
     3. Forward-fill OHLC columns
     4. Fill missing volume as zero
     5. Drop any leading NaNs (before first real bar)
+
+    Args:
+        df: OHLCV DataFrame with datetime index
+        freq: Bar frequency ("1min", "5min", etc.). Default "1min".
     """
     # 1. full index
     start, end = df.index.min(), df.index.max()
-    full_idx = pd.date_range(start, end, freq="1min")
+    bar_freq = freq or "1min"
+    full_idx = pd.date_range(start, end, freq=bar_freq)
 
     # 2. reindex
     df_full = df.reindex(full_idx)
