@@ -73,6 +73,8 @@ def main() -> None:
     parser.add_argument("--slippage-bps", type=float, default=2.0, help="Slippage in bps")
     parser.add_argument("--spread-bps", type=float, default=1.0, help="Spread proxy in bps")
     parser.add_argument("--no-execution", action="store_true", help="Disable fees/slippage")
+    parser.add_argument("--cost-sensitivity", action="store_true", default=True, help="Run with/without costs and report deltas (default True)")
+    parser.add_argument("--no-cost-sensitivity", action="store_false", dest="cost_sensitivity", help="Skip cost sensitivity comparison")
     parser.add_argument("--use-cached-data", action="store_true", default=True, help="Use cached data if available (default True)")
     parser.add_argument("--no-cache", action="store_true", help="Disable cache (always fetch)")
     parser.add_argument("--period-override", action="store_true", help="Allow period > cap for minute data")
@@ -152,7 +154,14 @@ def main() -> None:
         spread_bps=args.spread_bps,
         execution_delay_bars=1,
     )
+    exec_zero = ExecutionConfig(
+        fee_bps=0.0, slippage_bps=0.0, spread_bps=0.0, execution_delay_bars=1
+    )
+
     result = backtester.run_from_signals(close, positions, execution_config=exec_config)
+    result_zero = None
+    if args.cost_sensitivity and exec_config is not None:
+        result_zero = backtester.run_from_signals(close, positions, execution_config=exec_zero)
 
     # 4) Turnover
     pos_held = positions.shift(1).fillna(0)
@@ -178,6 +187,11 @@ def main() -> None:
         print(f"  Execution:      (disabled)")
     print(f"  Sharpe (ann.):  {result.sharpe_ratio:.2f}")
     print(f"  Total Return:   {result.total_return:.2%}")
+    if result_zero is not None:
+        sharpe_delta = result.sharpe_ratio - result_zero.sharpe_ratio
+        ret_delta = result.total_return - result_zero.total_return
+        print(f"  [Cost sensitivity] Zero-cost: Sharpe={result_zero.sharpe_ratio:.2f} Return={result_zero.total_return:.2%}")
+        print(f"  [Cost sensitivity] Delta:     Sharpe={sharpe_delta:+.2f} Return={ret_delta:+.2%}")
     print(f"  Max Drawdown:   {result.max_drawdown:.2%}")
     print(f"  Trades:         {result.n_trades}")
     print(f"  Turnover (ann): {turnover_ann:.2f}")
@@ -208,6 +222,16 @@ def main() -> None:
             "spread_bps": args.spread_bps,
         },
     )
+    if result_zero is not None:
+        summary_path = out_dir / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["with_costs"] = {"sharpe": result.sharpe_ratio, "total_return": result.total_return}
+        summary["zero_costs"] = {"sharpe": result_zero.sharpe_ratio, "total_return": result_zero.total_return}
+        summary["delta"] = {
+            "sharpe": result.sharpe_ratio - result_zero.sharpe_ratio,
+            "total_return": result.total_return - result_zero.total_return,
+        }
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"  Saved to {out_dir}/")
 
     print("\nDone.")
