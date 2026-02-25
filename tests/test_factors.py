@@ -4,6 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.backtest import Backtester
 from src.factors import (
@@ -12,6 +13,7 @@ from src.factors import (
     cross_sectional_rank,
     build_portfolio,
     get_universe,
+    UniverseRegistry,
     forward_returns,
     cross_sectional_ic,
     summarize_ic,
@@ -46,6 +48,29 @@ def test_get_universe() -> None:
     assert len(syms) == 10
     assert "SPY" in syms
     assert "QQQ" in syms
+
+
+def test_universe_registry() -> None:
+    """UniverseRegistry lists and returns all universes."""
+    names = UniverseRegistry.list_names()
+    assert "liquid_etfs" in names
+    assert "sector_etfs" in names
+    assert "bond_etfs" in names
+    assert "commodity_etfs" in names
+    assert "international_etfs" in names
+
+    symbols, meta = UniverseRegistry.get("sector_etfs", n=5)
+    assert len(symbols) == 5
+    assert meta.category == "sector"
+    assert "XLK" in symbols or "XLF" in symbols
+
+    syms = UniverseRegistry.get_symbols("bond_etfs", n=3)
+    assert len(syms) == 3
+    bond_all = UniverseRegistry.get_symbols("bond_etfs")
+    assert all(s in bond_all for s in syms)
+
+    with pytest.raises(ValueError, match="Unknown universe"):
+        UniverseRegistry.get("nonexistent")
 
 
 def test_compute_factor_momentum() -> None:

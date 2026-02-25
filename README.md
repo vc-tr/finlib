@@ -113,6 +113,7 @@ A: `python scripts/run_demo.py --config configs/demo_spy_momentum.json`
 
 - [docs/REALITY_CHECK.md](docs/REALITY_CHECK.md) — What works, what's broken
 - [docs/RESEARCH_METHOD.md](docs/RESEARCH_METHOD.md) — Data assumptions, evaluation protocol
+- [docs/UNIVERSES.md](docs/UNIVERSES.md) — Universe definitions (liquid_etfs, sector_etfs, bond_etfs, etc.)
 - [docs/INTEGRATION.md](docs/INTEGRATION.md) — Live broker integration
 
 ---

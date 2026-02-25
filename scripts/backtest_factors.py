@@ -24,6 +24,8 @@ from src.factors import (
     compute_factors,
     build_portfolio,
     get_universe,
+    UniverseRegistry,
+    UniverseRegistry,
     estimate_beta,
     rolling_portfolio_beta,
     forward_returns,
@@ -39,6 +41,13 @@ from src.factors.portfolio import (
     apply_constraints,
     rebalance_dates,
     weights_at_rebalance,
+)
+from src.backtest.cost_models import (
+    FixedBpsCostModel,
+    LiquidityAwareCostModel,
+    build_trades_from_weights,
+    apply_costs_from_trades,
+    compute_capacity_report,
 )
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
@@ -89,6 +98,12 @@ def _run_factor_backtest(
     beta_window: int = 252,
     max_gross: float | None = None,
     max_net: float | None = None,
+    cost_model: str = "fixed",
+    impact_k: float = 10.0,
+    impact_alpha: float = 0.5,
+    max_impact_bps: float = 50.0,
+    adv_window: int = 20,
+    portfolio_value: float = 1e6,
 ) -> tuple:
     """
     Run factor backtest.
@@ -144,17 +159,35 @@ def _run_factor_backtest(
             max_gross=max_gross, max_net=max_net,
         )
         w_held = _resample_weights_to_rebalance(weights, rebalance).shift(1).fillna(0)
-    port_ret = apply_rebalance_costs(
-        port_ret, w_held,
-        cost_bps=fee_bps + slippage_bps + spread_bps,
-    )
+
+    cost_config = {
+        "fee_bps": fee_bps,
+        "slippage_bps": slippage_bps,
+        "spread_bps": spread_bps,
+        "impact_k": impact_k,
+        "impact_alpha": impact_alpha,
+        "max_impact_bps": max_impact_bps,
+        "adv_window": adv_window,
+    }
+    trades_df = build_trades_from_weights(w_held, prices, portfolio_value=portfolio_value)
+    if cost_model == "liquidity":
+        model = LiquidityAwareCostModel()
+    else:
+        model = FixedBpsCostModel()
+    trades_df = model.estimate_costs(trades_df, df_by_symbol, cost_config)
+    port_ret = apply_costs_from_trades(port_ret, trades_df)
+
     bt = Backtester(annualization_factor=annualization)
     result = bt.run(port_ret)
     turnover = w_held.diff().abs().sum(axis=1).fillna(0)
     positions = w_held.sum(axis=1)
     rb_dates = rebalance_dates(factor_df.index, rebalance)
     n_rebalance = len(rb_dates)
-    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight, n_rebalance
+    capacity_report = compute_capacity_report(
+        trades_df, df_by_symbol, cost_config,
+        adv_window=adv_window, target_impact_bps=10.0,
+    )
+    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight, n_rebalance, capacity_report
 
 
 def _get_factor_df(
@@ -302,7 +335,16 @@ def _run_walkforward(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Cross-sectional factor backtest")
-    parser.add_argument("--universe", default="liquid_etfs", help="Universe name")
+    parser.add_argument(
+        "--universe",
+        default="liquid_etfs",
+        help=f"Universe name (choices: {', '.join(UniverseRegistry.list_names())})",
+    )
+    parser.add_argument(
+        "--list-universes",
+        action="store_true",
+        help="List available universes and exit",
+    )
     parser.add_argument("--factor", default="momentum_12_1",
                         choices=["momentum_12_1", "reversal_5d", "lowvol_20d", "combo"])
     parser.add_argument("--combo", default=None,
@@ -330,10 +372,24 @@ def main() -> None:
     parser.add_argument("--beta-window", type=int, default=252, help="Rolling window for beta estimation")
     parser.add_argument("--max-gross", type=float, default=None, help="Cap gross exposure per rebalance")
     parser.add_argument("--max-net", type=float, default=None, help="Cap net exposure per rebalance")
+    parser.add_argument("--cost-model", default="fixed", choices=["fixed", "liquidity"],
+                        help="Cost model: fixed (bps) or liquidity-aware")
+    parser.add_argument("--impact-k", type=float, default=10.0, help="Impact model coefficient")
+    parser.add_argument("--impact-alpha", type=float, default=0.5, help="Impact model exponent")
+    parser.add_argument("--max-impact-bps", type=float, default=50.0, help="Cap impact cost in bps")
+    parser.add_argument("--adv-window", type=int, default=20, help="Rolling window for ADV")
+    parser.add_argument("--portfolio-value", type=float, default=1e6, help="AUM for capacity/impact")
     parser.add_argument("--report-ic", action="store_true", help="Compute and report IC/IR metrics")
     parser.add_argument("--ic-horizons", default="1,5,21", help="Comma-separated IC horizons (default 1,5,21)")
     parser.add_argument("--ic-method", default="spearman", choices=["spearman", "pearson"], help="IC correlation method")
     args = parser.parse_args()
+
+    if args.list_universes:
+        print("Available universes:")
+        for name in UniverseRegistry.list_names():
+            meta = UniverseRegistry.get_meta(name)
+            print(f"  {name}: {meta.description} ({meta.category})")
+        return
 
     symbols = get_universe(args.universe, n=50)
     if args.beta_neutral and args.market_symbol not in symbols:
@@ -466,6 +522,12 @@ def main() -> None:
         beta_window=args.beta_window,
         max_gross=args.max_gross,
         max_net=args.max_net,
+        cost_model=args.cost_model,
+        impact_k=args.impact_k,
+        impact_alpha=args.impact_alpha,
+        max_impact_bps=args.max_impact_bps,
+        adv_window=args.adv_window,
+        portfolio_value=args.portfolio_value,
     )
     result = out[0]
     positions = out[1]
@@ -476,6 +538,12 @@ def main() -> None:
     beta_after = out[6] if len(out) > 6 else None
     hedge_weight = out[7] if len(out) > 7 else None
     n_rebalance = out[8] if len(out) > 8 else 0
+    capacity_report = out[9] if len(out) > 9 else None
+
+    if capacity_report is not None:
+        (output_dir / "capacity_report.json").write_text(
+            json.dumps(capacity_report, indent=2), encoding="utf-8"
+        )
 
     # Turnover at rebalance/execution timestamps only
     turnover_at_rb = turnover[turnover > 1e-10]
@@ -603,6 +671,7 @@ def main() -> None:
         hedge_weight=hedge_weight,
         beta_series=beta_series,
         beta_neutral=args.beta_neutral,
+        capacity_report=capacity_report,
     )
     summary = {
         "factor": args.factor,
