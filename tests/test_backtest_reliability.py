@@ -184,3 +184,55 @@ def test_tearsheet_respects_temp_output_dir(tmp_path: Path) -> None:
     assert not any((tmp_path / f).exists() for f in expected), (
         "Artifacts must not leak to parent of output_dir"
     )
+
+
+def test_run_demo_writes_to_output_dir_without_touching_root(tmp_path: Path, monkeypatch) -> None:
+    """run_demo with --output-dir writes all artifacts to that dir, not output/ root."""
+    import importlib.util
+    import sys
+
+    # Fake OHLCV data
+    prices = _rising_prices(50)
+    df = pd.DataFrame({
+        "open": prices - 0.5,
+        "high": prices + 1,
+        "low": prices - 1,
+        "close": prices,
+        "volume": 1000000,
+    })
+
+    def fake_fetch(*args, **kwargs):
+        return df.copy()
+
+    monkeypatch.setattr(
+        "src.pipeline.data_fetcher_yahoo.YahooDataFetcher.fetch_ohlcv",
+        fake_fetch,
+    )
+
+    out_dir = tmp_path / "demo_out"
+    out_dir.mkdir()
+    sys.argv = [
+        "run_demo",
+        "--symbol", "SPY",
+        "--period", "5d",
+        "--interval", "1d",
+        "--output-dir", str(out_dir),
+        "--no-lock",
+        "--no-cost-sensitivity",
+    ]
+
+    proj_root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "run_demo", proj_root / "scripts" / "run_demo.py"
+    )
+    run_demo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(run_demo)
+    run_demo.main()
+
+    expected = ["tearsheet.html", "equity_curve.png", "drawdown.png", "summary.json", "REPORT.md"]
+    for name in expected:
+        assert (out_dir / name).exists(), f"Expected {name} in {out_dir}"
+    # All artifacts must be in the specified output_dir, not leaked elsewhere
+    assert not any((tmp_path / name).exists() for name in expected if tmp_path != out_dir), (
+        "Artifacts must not leak to tmp_path root when output_dir is a subdir"
+    )
