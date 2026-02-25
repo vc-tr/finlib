@@ -19,10 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd
 
 from src.backtest import Backtester
-from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe
+from src.factors import compute_factor, compute_factors, cross_sectional_rank, build_portfolio, get_universe, estimate_beta
 from src.factors.factors import get_prices_wide
 from src.factors.ensemble import combine_factors
-from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance
+from src.factors.portfolio import apply_rebalance_costs, _resample_weights_to_rebalance, apply_beta_neutral, apply_constraints
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
 
@@ -67,8 +67,13 @@ def _run_factor_backtest(
     slippage_bps: float,
     spread_bps: float,
     annualization: float,
+    beta_neutral: bool = False,
+    market_symbol: str = "SPY",
+    beta_window: int = 252,
+    max_gross: float | None = None,
+    max_net: float | None = None,
 ) -> tuple:
-    """Run factor backtest, return (result, positions, prices, turnover, weights_held)."""
+    """Run factor backtest, return (result, positions, prices, turnover, weights_held, beta_before, beta_after, hedge_weight)."""
     weights = cross_sectional_rank(
         factor_df,
         top_k=top_k,
@@ -79,8 +84,35 @@ def _run_factor_backtest(
         max_weight=0.1,
     )
     prices = get_prices_wide(df_by_symbol)
-    port_ret = build_portfolio(weights, prices, rebalance=rebalance, execution_delay=1)
-    w_held = _resample_weights_to_rebalance(weights, rebalance).shift(1).fillna(0)
+    beta_before = None
+    beta_after = None
+    hedge_weight = None
+
+    if beta_neutral:
+        if market_symbol not in df_by_symbol:
+            raise ValueError(f"Beta-neutral requires {market_symbol} in universe; add it to --universe or fetch it.")
+        returns = prices.pct_change()
+        mr = returns[market_symbol] if market_symbol in returns.columns else prices[market_symbol].pct_change()
+        betas = estimate_beta(returns, mr, window=beta_window)
+        out = build_portfolio(
+            weights, prices,
+            rebalance=rebalance, execution_delay=1,
+            max_gross=max_gross, max_net=max_net,
+            beta_neutral=True, betas=betas, market_symbol=market_symbol,
+        )
+        port_ret, beta_before, beta_after, hedge_weight = out
+        w_raw = weights.copy()
+        if max_gross is not None or max_net is not None:
+            w_raw = apply_constraints(w_raw, max_gross=max_gross, max_net=max_net, gross_leverage=1.0)
+        w_raw, _, _ = apply_beta_neutral(w_raw, betas, market_symbol=market_symbol)
+        w_held = _resample_weights_to_rebalance(w_raw, rebalance).shift(1).fillna(0)
+    else:
+        port_ret = build_portfolio(
+            weights, prices,
+            rebalance=rebalance, execution_delay=1,
+            max_gross=max_gross, max_net=max_net,
+        )
+        w_held = _resample_weights_to_rebalance(weights, rebalance).shift(1).fillna(0)
     port_ret = apply_rebalance_costs(
         port_ret, w_held,
         cost_bps=fee_bps + slippage_bps + spread_bps,
@@ -89,7 +121,7 @@ def _run_factor_backtest(
     result = bt.run(port_ret)
     turnover = w_held.diff().abs().sum(axis=1).fillna(0)
     positions = w_held.sum(axis=1)
-    return result, positions, prices, turnover, w_held
+    return result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight
 
 
 def _get_factor_df(
@@ -253,9 +285,16 @@ def main() -> None:
     parser.add_argument("--test-days", type=int, default=63)
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--lock-timeout", type=float, default=0)
+    parser.add_argument("--beta-neutral", action="store_true", help="Hedge portfolio beta with market (SPY)")
+    parser.add_argument("--market-symbol", default="SPY", help="Market symbol for beta hedge (default SPY)")
+    parser.add_argument("--beta-window", type=int, default=252, help="Rolling window for beta estimation")
+    parser.add_argument("--max-gross", type=float, default=None, help="Cap gross exposure per rebalance")
+    parser.add_argument("--max-net", type=float, default=None, help="Cap net exposure per rebalance")
     args = parser.parse_args()
 
     symbols = get_universe(args.universe, n=50)
+    if args.beta_neutral and args.market_symbol not in symbols:
+        symbols = [args.market_symbol] + [s for s in symbols if s != args.market_symbol]
     annualization = 252 if args.interval == "1d" else 252 * 6.5
 
     if args.output_dir:
@@ -306,9 +345,14 @@ def main() -> None:
     factor_df, combo_weights = _get_factor_df(
         df_by_symbol, args.factor, combo_list, args.combo_method, None
     )
-    result, positions, prices, turnover, w_held = _run_factor_backtest(
+    result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight = _run_factor_backtest(
         df_by_symbol, factor_df, args.top_k, args.bottom_k, args.rebalance,
         args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
+        beta_neutral=args.beta_neutral,
+        market_symbol=args.market_symbol,
+        beta_window=args.beta_window,
+        max_gross=args.max_gross,
+        max_net=args.max_net,
     )
 
     print("[3/4] Results:")
@@ -344,6 +388,9 @@ def main() -> None:
         weights=w_held,
         turnover_series=turnover,
         prices_wide=prices,
+        portfolio_beta_before=beta_before,
+        portfolio_beta_after=beta_after,
+        hedge_weight=hedge_weight,
     )
     summary = {
         "factor": args.factor,
