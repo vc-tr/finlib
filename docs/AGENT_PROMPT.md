@@ -102,7 +102,7 @@ pytest tests/ -v
 from src.strategies import MeanReversionStrategy, MomentumStrategy, BlackScholes, MonteCarloPricer
 from src.backtest import Backtester
 from src.portfolio import MultiStrategyPortfolio, PortfolioAllocator, AllocationMethod
-from src.models.factory import create_model
+from src.experimental.models import create_model
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 ```

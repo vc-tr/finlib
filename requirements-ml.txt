@@ -1,0 +1,5 @@
+# Optional: DL models (src.experimental.models), train.py removed
+# Install with: pip install -r requirements.txt -r requirements-ml.txt
+torch>=2.0
+mlflow>=2.0
+tensorboard>=2.0
