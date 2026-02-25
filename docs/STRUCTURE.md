@@ -16,13 +16,15 @@ src/
 │   ├── portfolio.py  # build_portfolio, weights_at_rebalance
 │   ├── ensemble.py   # combine_factors (combo weighting)
 │   ├── research.py   # forward_returns, IC/IR
-│   └── risk.py       # estimate_beta, rolling_portfolio_beta
+│   ├── risk.py       # estimate_beta, rolling_portfolio_beta
+│   └── runner.py     # run_factor_backtest, main (CLI)
 ├── paper/             # Paper trading
 │   ├── orders.py     # Order, OrderSide, OrderType
 │   ├── exchange.py   # PaperExchange, Fill
 │   ├── broker.py     # PaperBroker
 │   ├── risk.py       # RiskManager
-│   └── strategy_adapter.py  # get_factor_target_weights
+│   ├── strategy_adapter.py  # get_factor_target_weights
+│   └── runner.py     # run_replay
 ├── pipeline/          # Data and features
 │   ├── data_fetcher.py
 │   ├── data_fetcher_yahoo.py
@@ -31,12 +33,16 @@ src/
 │   └── baselines.py
 ├── reporting/         # Tear-sheet generation
 │   └── tearsheet.py
+├── ops/               # Operations
+│   ├── daily.py      # run_daily, load/save portfolio, run_meta
+│   └── monitor.py    # run_monitor, scan runs, alerts
 ├── strategies/        # Trading strategies (momentum, mean reversion, etc.)
 ├── models/            # LSTM, GRU, Transformer, TCN
 ├── portfolio/         # Multi-strategy allocation
 └── utils/
     ├── io.py         # parse_period_days, fetch_universe_ohlcv, cap_period_for_interval
     ├── jsonable.py   # to_jsonable
+    ├── cli.py        # shared argparse builders (factors, replay, daily, monitor)
     └── runlock.py    # RunLock (global run lock)
 ```
 
