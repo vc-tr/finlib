@@ -25,6 +25,7 @@ from src.factors.factors import get_prices_wide
 from src.factors.portfolio import rebalance_dates
 from src.paper.strategy_adapter import get_factor_target_weights
 from src.backtest.cost_models import FixedBpsCostModel, LiquidityAwareCostModel
+from src.utils.jsonable import to_jsonable
 
 STATE_PATH = Path("data/state/current_portfolio.json")
 MARKET_SYMBOL = "SPY"
@@ -248,8 +249,7 @@ def _run_daily(
     else:
         (output_dir / "orders_to_place.csv").write_text("symbol,side,quantity,weight_delta,notional,fill_price\n", encoding="utf-8")
 
-    (output_dir / "risk_checks.json").write_text(json.dumps(risk_checks, indent=2), encoding="utf-8")
-
+    # Write daily_report.md first (even if risk_checks serialization fails later)
     report_lines = [
         "# Daily Report",
         "",
@@ -284,6 +284,9 @@ def _run_daily(
     ])
     (output_dir / "daily_report.md").write_text("\n".join(report_lines), encoding="utf-8")
 
+    # risk_checks.json with JSON-serializable types (numpy/pandas scalars)
+    (output_dir / "risk_checks.json").write_text(json.dumps(to_jsonable(risk_checks), indent=2), encoding="utf-8")
+
     # 8) Apply if requested
     if apply and not any([risk_checks["max_gross_breach"], risk_checks["max_net_breach"], risk_checks["max_position_breach"]]):
         _save_current_portfolio(state_path, new_cash, new_positions, str(asof.date()))
@@ -298,7 +301,7 @@ def _run_daily(
         "risk_checks": risk_checks,
         "applied": apply,
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(json.dumps(to_jsonable(summary), indent=2), encoding="utf-8")
 
     return summary
 

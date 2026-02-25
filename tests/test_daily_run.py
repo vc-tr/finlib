@@ -1,7 +1,6 @@
 """Tests for daily_run pipeline (no network)."""
 
 import json
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -13,6 +12,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.daily_run import _run_daily, _load_current_portfolio, _save_current_portfolio
+from src.utils.jsonable import to_jsonable
 
 
 def _synthetic_ohlcv(n_dates: int = 100, n_symbols: int = 12, seed: int = 42) -> dict[str, pd.DataFrame]:
@@ -152,6 +152,25 @@ def test_daily_run_thresholds_enforced(tmp_path: Path) -> None:
     risk = json.loads((output_dir / "risk_checks.json").read_text())
     # With top 2 + bottom 2, we have 4 names, each ~25% => likely breach
     assert "max_position_breach" in risk
+
+
+def test_to_jsonable_serializes_numpy_pandas(tmp_path: Path) -> None:
+    """to_jsonable converts np.bool_, np.float64, pd.Timestamp, Path for json.dumps."""
+    risk_checks = {
+        "flag": np.bool_(True),
+        "value": np.float64(1.2),
+        "ts": pd.Timestamp("2024-06-30"),
+        "path": tmp_path / "foo.json",
+        "nested": {"x": np.int64(42), "y": np.bool_(False)},
+    }
+    serialized = json.dumps(to_jsonable(risk_checks), indent=2)
+    parsed = json.loads(serialized)
+    assert parsed["flag"] is True
+    assert parsed["value"] == 1.2
+    assert "2024-06-30" in parsed["ts"]
+    assert "foo.json" in parsed["path"]
+    assert parsed["nested"]["x"] == 42
+    assert parsed["nested"]["y"] is False
 
 
 def test_load_save_portfolio(tmp_path: Path) -> None:
