@@ -1,18 +1,11 @@
-"""Tests for scripts/backtest_factors.py."""
+"""Tests for factor backtest (src/backtest/factor_backtest.py)."""
 
-import importlib.util
-import sys
-from pathlib import Path
+import unittest.mock as mock
 
 import numpy as np
 import pandas as pd
 
-# Load backtest_factors module
-_script_path = Path(__file__).resolve().parent.parent / "scripts" / "backtest_factors.py"
-_spec = importlib.util.spec_from_file_location("backtest_factors", _script_path)
-_backtest_mod = importlib.util.module_from_spec(_spec)
-sys.modules["backtest_factors"] = _backtest_mod
-_spec.loader.exec_module(_backtest_mod)
+from src.backtest.factor_backtest import run_factor_backtest, run_factor_walkforward
 
 
 def _synthetic_df_by_symbol(n_dates: int = 400, n_symbols: int = 15, seed: int = 42) -> dict:
@@ -29,20 +22,15 @@ def _synthetic_df_by_symbol(n_dates: int = 400, n_symbols: int = 15, seed: int =
 
 
 def test_run_walkforward_robust_to_many_return_values():
-    """_run_walkforward works when _run_factor_backtest returns >5 values (mock)."""
-    import unittest.mock as mock
-
-    _run_walkforward = _backtest_mod._run_walkforward
-    _run_factor_backtest = _backtest_mod._run_factor_backtest
-
+    """run_factor_walkforward works when run_factor_backtest returns >5 values (mock)."""
     df_by = _synthetic_df_by_symbol(300, 12)
     idx = df_by["S0"].index
-    # Mock _run_factor_backtest to return 10 values (more than 5)
     fake_result = type("R", (), {})()
     fake_result.returns = pd.Series(0.001, index=idx)
 
-    with mock.patch.object(_backtest_mod, "_run_factor_backtest") as m:
-        m.return_value = (
+    with mock.patch(
+        "src.backtest.factor_backtest.run_factor_backtest",
+        return_value=(
             fake_result,
             None,
             None,
@@ -53,8 +41,9 @@ def test_run_walkforward_robust_to_many_return_values():
             None,
             "extra1",
             "extra2",
-        )
-        out = _run_walkforward(
+        ),
+    ) as m:
+        out = run_factor_walkforward(
             df_by,
             factor="momentum_12_1",
             combo_list=None,
