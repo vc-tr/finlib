@@ -27,6 +27,23 @@ from src.strategies import MomentumStrategy
 INTERVAL_PERIOD_CAP = {"1m": "7d", "5m": "60d", "1h": "730d"}
 
 
+def _throttle_positions(positions: pd.Series, decision_interval_bars: int) -> pd.Series:
+    """
+    Only allow position changes at bars where index % K == 0.
+    At other bars, hold the last decision. Still applies delay_bars downstream.
+    """
+    if decision_interval_bars <= 1:
+        return positions
+    arr = positions.values.copy()
+    last = float(arr[0]) if len(arr) > 0 and not np.isnan(arr[0]) else 0.0
+    for i in range(len(arr)):
+        if i % decision_interval_bars == 0:
+            last = arr[i]
+        else:
+            arr[i] = last
+    return pd.Series(arr, index=positions.index)
+
+
 def _parse_period_days(period: str) -> int:
     """Convert period string to approximate days (yfinance format)."""
     period = period.lower().strip()
@@ -51,6 +68,7 @@ def main() -> None:
     parser.add_argument("--interval", default="1d", choices=["1d", "1h", "1m", "5m"], help="Bar interval")
     parser.add_argument("--lookback", type=int, default=20, help="Momentum lookback")
     parser.add_argument("--min-hold-bars", type=int, default=None, help="Min bars to hold (default: 1 for 1d, 5 for 1m)")
+    parser.add_argument("--decision-interval-bars", type=int, default=None, help="Only allow position changes every K bars (default: 1 for 1d, 15 for 1m)")
     parser.add_argument("--fee-bps", type=float, default=1.0, help="Fee in bps per trade")
     parser.add_argument("--slippage-bps", type=float, default=2.0, help="Slippage in bps")
     parser.add_argument("--spread-bps", type=float, default=1.0, help="Spread proxy in bps")
@@ -71,6 +89,8 @@ def main() -> None:
         sp = cfg.get("strategy_params", {})
         args.lookback = sp.get("lookback", args.lookback)
         args.min_hold_bars = sp.get("min_hold_bars", args.min_hold_bars)
+        if "decision_interval_bars" in cfg:
+            args.decision_interval_bars = cfg["decision_interval_bars"]
         ex = cfg.get("execution", {})
         if ex and not args.no_execution:
             args.fee_bps = ex.get("fee_bps", args.fee_bps)
@@ -90,6 +110,10 @@ def main() -> None:
     # min_hold_bars default: 1 for daily, 5 for minute
     if args.min_hold_bars is None:
         args.min_hold_bars = 5 if args.interval in ("1m", "5m") else 1
+
+    # decision_interval_bars default: 1 for daily, 15 for minute
+    if args.decision_interval_bars is None:
+        args.decision_interval_bars = 15 if args.interval in ("1m", "5m") else 1
 
     # 1) Data download
     print(f"[1/5] Fetching {args.symbol} ({args.period}, {args.interval})...")
@@ -111,6 +135,7 @@ def main() -> None:
     print(f"[2/5] Momentum (lookback={args.lookback}, min_hold={args.min_hold_bars})...")
     strategy = MomentumStrategy(lookback=args.lookback, min_hold_bars=args.min_hold_bars)
     positions, _ = strategy.backtest_returns(close)
+    positions = _throttle_positions(positions, args.decision_interval_bars)
 
     # 3) Backtest
     print("[3/5] Backtesting...")
@@ -146,6 +171,7 @@ def main() -> None:
     print("[4/5] Results:")
     print("-" * 55)
     print(f"  Interval:       {args.interval}")
+    print(f"  Decision int.:  {args.decision_interval_bars} bars")
     if exec_config:
         print(f"  Execution:      fee={args.fee_bps}bps slip={args.slippage_bps}bps spread={args.spread_bps}bps delay_bars=1")
     else:
@@ -176,6 +202,7 @@ def main() -> None:
             "interval": args.interval,
             "lookback": args.lookback,
             "min_hold_bars": args.min_hold_bars,
+            "decision_interval_bars": args.decision_interval_bars,
             "fee_bps": args.fee_bps,
             "slippage_bps": args.slippage_bps,
             "spread_bps": args.spread_bps,
