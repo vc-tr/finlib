@@ -67,24 +67,41 @@ def combine_factors(
             combined = sum(zscored.values()) / len(zscored)
             return combined, {n: 1.0 / len(names) for n in names}
 
+        # Compute IC per factor: per-date cross-sectional corr, then nan-safe mean
         ics = []
         for n, df in aligned.items():
-            fac = df.loc[train_idx].reindex(columns=fwd_returns.columns).fillna(0)
+            fac = df.loc[train_idx].reindex(columns=fwd_returns.columns)
             fwd = fwd_returns.loc[train_idx].reindex(index=fac.index, columns=fac.columns)
-            # Stack to vectors, drop NaN
-            f_flat = fac.values.ravel()
-            r_flat = fwd.values.ravel()
-            mask = np.isfinite(f_flat) & np.isfinite(r_flat)
-            if mask.sum() < 20:
-                ics.append(0.0)
-            else:
-                ic = np.corrcoef(f_flat[mask], r_flat[mask])[0, 1]
-                ics.append(ic if not np.isnan(ic) else 0.0)
+            ic_per_date = []
+            for dt in fac.index:
+                if dt not in fwd.index:
+                    continue
+                x = fac.loc[dt].dropna()
+                y = fwd.loc[dt].reindex(x.index).dropna()
+                valid = x.index.intersection(y.index)
+                if len(valid) < 2:
+                    ic_per_date.append(0.0)
+                    continue
+                xv = x.loc[valid].values
+                yv = y.loc[valid].values
+                # Drop rows with NaN in either series
+                mask = np.isfinite(xv) & np.isfinite(yv)
+                if mask.sum() < 2:
+                    ic_per_date.append(0.0)
+                    continue
+                xv, yv = xv[mask], yv[mask]
+                if np.std(xv) < 1e-12 or np.std(yv) < 1e-12:
+                    ic_per_date.append(0.0)
+                    continue
+                ic = np.corrcoef(xv, yv)[0, 1]
+                ic_per_date.append(ic if np.isfinite(ic) else 0.0)
+            mean_ic = float(np.nanmean(ic_per_date)) if ic_per_date else 0.0
+            ics.append(mean_ic if np.isfinite(mean_ic) else 0.0)
 
         # Weight by |IC| (or IC if positive), avoid negative/zero
         ics_arr = np.array(ics)
-        ics_arr = np.where(ics_arr > 0, ics_arr, 0)
-        if ics_arr.sum() < 1e-10:
+        ics_arr = np.where(np.isfinite(ics_arr) & (ics_arr > 0), ics_arr, 0.0)
+        if ics_arr.sum() < 1e-10 or not np.any(np.isfinite(ics_arr)):
             weights = {n: 1.0 / len(names) for n in names}
         else:
             weights = {n: float(w) for n, w in zip(names, ics_arr / ics_arr.sum())}

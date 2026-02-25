@@ -65,6 +65,53 @@ def test_ic_weighted_uses_train_only():
     assert combined.loc[idx[train_end_idx]:].notna().any().any()
 
 
+def test_ic_weighted_constant_factor_fallback():
+    """ic_weighted does not crash when factor is constant; falls back to equal weights."""
+    rng = np.random.RandomState(44)
+    n_dates, n_symbols = 80, 15
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    cols = [f"S{i}" for i in range(n_symbols)]
+    # One factor constant, one normal
+    factors = {
+        "constant": pd.DataFrame(np.ones((n_dates, n_symbols)), index=idx, columns=cols),
+        "normal": pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.1, index=idx, columns=cols),
+    }
+    fwd = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.01, index=idx, columns=cols)
+    train_slice = slice(idx[0], idx[49])
+    combined, weights = combine_factors(
+        factors, method="ic_weighted",
+        train_slice=train_slice,
+        fwd_returns=fwd,
+    )
+    assert combined.shape == (n_dates, n_symbols)
+    assert len(weights) == 2
+    assert abs(sum(weights.values()) - 1.0) < 1e-6
+    # Should fall back to equal (constant has IC=0)
+    assert abs(weights["constant"] - 0.5) < 1e-5 or abs(weights["normal"] - 0.5) < 1e-5
+
+
+def test_ic_weighted_nans_fallback():
+    """ic_weighted does not crash when factor has NaNs; falls back to equal if needed."""
+    rng = np.random.RandomState(45)
+    n_dates, n_symbols = 60, 12
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    cols = [f"S{i}" for i in range(n_symbols)]
+    f1 = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.1, index=idx, columns=cols)
+    f1.iloc[:30, :] = np.nan  # First half all NaN
+    f2 = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.05, index=idx, columns=cols)
+    factors = {"f1": f1, "f2": f2}
+    fwd = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.01, index=idx, columns=cols)
+    train_slice = slice(idx[0], idx[39])
+    combined, weights = combine_factors(
+        factors, method="ic_weighted",
+        train_slice=train_slice,
+        fwd_returns=fwd,
+    )
+    assert combined.shape == (n_dates, n_symbols)
+    assert len(weights) == 2
+    assert abs(sum(weights.values()) - 1.0) < 1e-6
+
+
 def test_ridge_returns_weights():
     """Ridge method returns valid weights."""
     factors = _synthetic_factors(80, 12)

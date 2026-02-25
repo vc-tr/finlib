@@ -73,7 +73,19 @@ def _run_factor_backtest(
     max_gross: float | None = None,
     max_net: float | None = None,
 ) -> tuple:
-    """Run factor backtest, return (result, positions, prices, turnover, weights_held, beta_before, beta_after, hedge_weight)."""
+    """
+    Run factor backtest.
+
+    Returns (order matters for robust unpacking):
+        0: result (Backtester result)
+        1: positions (Series)
+        2: prices (DataFrame)
+        3: turnover (Series)
+        4: w_held (DataFrame)
+        5: beta_before (Series or None)
+        6: beta_after (Series or None)
+        7: hedge_weight (Series or None)
+    """
     weights = cross_sectional_rank(
         factor_df,
         top_k=top_k,
@@ -221,10 +233,11 @@ def _run_walkforward(
         else:
             factor_df, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
 
-        result, _, _, _, _ = _run_factor_backtest(
+        out = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
         )
+        result = out[0]
         test_ret = result.returns.loc[test_start:test_end].dropna()
         if len(test_ret) < 5:
             continue
@@ -345,7 +358,7 @@ def main() -> None:
     factor_df, combo_weights = _get_factor_df(
         df_by_symbol, args.factor, combo_list, args.combo_method, None
     )
-    result, positions, prices, turnover, w_held, beta_before, beta_after, hedge_weight = _run_factor_backtest(
+    out = _run_factor_backtest(
         df_by_symbol, factor_df, args.top_k, args.bottom_k, args.rebalance,
         args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
         beta_neutral=args.beta_neutral,
@@ -354,6 +367,14 @@ def main() -> None:
         max_gross=args.max_gross,
         max_net=args.max_net,
     )
+    result = out[0]
+    positions = out[1]
+    prices = out[2]
+    turnover = out[3]
+    w_held = out[4]
+    beta_before = out[5] if len(out) > 5 else None
+    beta_after = out[6] if len(out) > 6 else None
+    hedge_weight = out[7] if len(out) > 7 else None
 
     print("[3/4] Results:")
     print("-" * 50)
