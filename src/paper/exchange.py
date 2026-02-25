@@ -54,9 +54,10 @@ class PaperExchange:
     """
     Replays historical bars and fills orders deterministically.
 
-    - Market orders: filled at bar close (or open+spread for realism)
-    - Limit orders: filled when price touches limit
+    - Market orders: filled at next bar open or close (configurable via fill_mode)
+    - Limit orders: filled when price touches limit (low<=limit<=high)
     - Cost model: fixed (bps) or liquidity-adjusted
+    - No randomness: deterministic fills
     """
 
     def __init__(
@@ -65,6 +66,8 @@ class PaperExchange:
         cost_model: str = "fixed",
         fee_bps: float = 10.0,
         slippage_bps: float = 5.0,
+        spread_bps: Optional[float] = None,
+        fill_mode: str = "next_close",
     ) -> None:
         """
         Args:
@@ -72,14 +75,19 @@ class PaperExchange:
             cost_model: "fixed" | "liquidity" (liquidity = higher cost for low volume)
             fee_bps: Fixed fee in bps (cost_model=fixed)
             slippage_bps: Slippage in bps
+            spread_bps: Spread in bps (defaults to 1.0 if None)
+            fill_mode: "next_open" | "next_close" - price for market order fills
         """
         self._bars = bars_by_symbol
         self._cost_model = cost_model
         self._fee_bps = fee_bps
         self._slippage_bps = slippage_bps
+        self._spread_bps = spread_bps if spread_bps is not None else 1.0
+        self._fill_mode = fill_mode
         self._pending_orders: List[Order] = []
         self._fills: List[Fill] = []
         self._current_ts: Optional[datetime] = None
+        self._order_submit_ts: Dict[str, datetime] = {}  # order_id -> submit timestamp
 
     def _all_timestamps(self) -> pd.DatetimeIndex:
         """Union of all bar timestamps, sorted."""
@@ -108,14 +116,18 @@ class PaperExchange:
         bar = self.get_bar(symbol, timestamp)
         return bar.close if bar else None
 
-    def submit_order(self, order: Order) -> None:
+    def submit_order(self, order: Order, submit_ts: Optional[datetime] = None) -> None:
         """Submit order to exchange (queued for fill at next bar)."""
         order.status = OrderStatus.SUBMITTED
+        ts = submit_ts or self._current_ts
+        if ts:
+            self._order_submit_ts[order.order_id] = ts
         self._pending_orders.append(order)
 
     def replay_bar(self, timestamp: datetime) -> List[Fill]:
         """
         Process bar at timestamp: attempt to fill pending orders.
+        Only fills orders submitted before this timestamp (next-bar fill semantics).
         Returns list of fills.
         """
         self._current_ts = timestamp
@@ -123,6 +135,11 @@ class PaperExchange:
         still_pending: List[Order] = []
 
         for order in self._pending_orders:
+            # Only fill orders submitted before current bar
+            if order.order_id in self._order_submit_ts:
+                if self._order_submit_ts[order.order_id] >= timestamp:
+                    still_pending.append(order)
+                    continue
             bar = self.get_bar(order.symbol, timestamp)
             if bar is None:
                 still_pending.append(order)
@@ -154,7 +171,7 @@ class PaperExchange:
     def _try_fill(self, order: Order, bar: Bar) -> Optional[Fill]:
         """Attempt to fill order against bar. Returns Fill or None."""
         if order.order_type == OrderType.MARKET:
-            price = bar.close
+            price = bar.open if self._fill_mode == "next_open" else bar.close
             cost_bps = self._cost_for_trade(order.quantity, price, bar.volume)
             return Fill(
                 order_id=order.order_id,

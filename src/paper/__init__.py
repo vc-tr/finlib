@@ -1,7 +1,7 @@
 """Event-driven paper trading engine (historical replay)."""
 
 from .orders import Order, OrderSide, OrderStatus, OrderType
-from .exchange import PaperExchange
+from .exchange import PaperExchange, Fill
 from .broker import PaperBroker
 from .risk import RiskManager
 
@@ -13,4 +13,5 @@ __all__ = [
     "PaperExchange",
     "PaperBroker",
     "RiskManager",
+    "Fill",
 ]

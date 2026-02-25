@@ -11,9 +11,10 @@ class RiskManager:
     """
     Checks orders against risk limits before submission.
 
-    - max_gross: Cap on sum(|position|) across all symbols
-    - max_net: Cap on |sum(position)| (long - short)
+    - max_gross: Cap on sum(|position|) across all symbols (notional)
+    - max_net: Cap on |sum(position)| (long - short) (notional)
     - max_single_weight: Max |weight| per symbol (as fraction of portfolio)
+    - max_position_weight: Alias for max_single_weight
     """
 
     def __init__(
@@ -21,10 +22,12 @@ class RiskManager:
         max_gross: Optional[float] = None,
         max_net: Optional[float] = None,
         max_single_weight: Optional[float] = None,
+        max_position_weight: Optional[float] = None,
     ) -> None:
         self.max_gross = max_gross
         self.max_net = max_net
-        self.max_single_weight = max_single_weight
+        self.max_single_weight = max_single_weight or max_position_weight
+        self.max_position_weight = self.max_single_weight
 
     def check_order(
         self,

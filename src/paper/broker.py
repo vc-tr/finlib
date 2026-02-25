@@ -64,31 +64,19 @@ class PaperBroker:
         pos_val = sum(self._positions.get(s, 0) * prices.get(s, 0) for s in self._positions)
         return self._cash + pos_val
 
-    def submit_order(
+    def place_order(
         self,
-        symbol: str,
-        side: OrderSide,
-        quantity: float,
-        order_type: OrderType = OrderType.MARKET,
-        limit_price: Optional[float] = None,
+        order: Order,
+        submit_ts: Optional[datetime] = None,
         prices: Optional[Dict[str, float]] = None,
     ) -> Optional[Order]:
         """
-        Submit order. Checks risk, then sends to exchange.
+        Place order. Assigns order_id if missing, checks risk, sends to exchange.
         Returns Order if accepted, None if rejected.
-        prices: Current prices for risk check (required for accurate portfolio value).
         """
-        order_id = self._next_order_id()
-        order = Order(
-            order_id=order_id,
-            symbol=symbol,
-            side=side,
-            quantity=quantity,
-            order_type=order_type,
-            limit_price=limit_price,
-            status=OrderStatus.PENDING,
-            created_at=datetime.now(),
-        )
+        if not order.order_id:
+            order.order_id = self._next_order_id()
+        order.created_at = order.created_at or datetime.now()
 
         prices = prices or {}
         pv = self.portfolio_value(prices) if prices else self._cash
@@ -98,8 +86,36 @@ class PaperBroker:
             order.status = OrderStatus.REJECTED
             return order
 
-        self.exchange.submit_order(order)
+        self.exchange.submit_order(order, submit_ts=submit_ts)
         return order
+
+    def submit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        order_type: OrderType = OrderType.MARKET,
+        limit_price: Optional[float] = None,
+        prices: Optional[Dict[str, float]] = None,
+        submit_ts: Optional[datetime] = None,
+    ) -> Optional[Order]:
+        """
+        Submit order. Checks risk, then sends to exchange.
+        Returns Order if accepted, None if rejected.
+        prices: Current prices for risk check (required for accurate portfolio value).
+        """
+        order_id = self._next_order_id()
+        order = Order(
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_id=order_id,
+            order_type=order_type,
+            limit_price=limit_price,
+            status=OrderStatus.PENDING,
+            created_at=datetime.now(),
+        )
+        return self.place_order(order, submit_ts=submit_ts, prices=prices)
 
     def process_fills(self, fills: List[Fill]) -> None:
         """Process fills from exchange: update cash, positions, blotter."""
