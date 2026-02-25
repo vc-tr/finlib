@@ -4,6 +4,7 @@ Reliability tests for backtest engine: no lookahead, costs, trade counting, tear
 Uses deterministic synthetic OHLCV data (no network). Tests run fast (<2s).
 """
 
+import json
 import numpy as np
 import pandas as pd
 import pytest
@@ -184,6 +185,61 @@ def test_tearsheet_respects_temp_output_dir(tmp_path: Path) -> None:
     assert not any((tmp_path / f).exists() for f in expected), (
         "Artifacts must not leak to parent of output_dir"
     )
+
+
+def test_run_demo_1m_sets_intraday_defaults_without_overrides(tmp_path: Path, monkeypatch, capsys) -> None:
+    """With interval=1m and no lookback/min_hold/decision_interval, parser applies intraday defaults."""
+    import importlib.util
+    import sys
+
+    # Use minute-indexed data directly to avoid slow reindex_and_backfill expansion
+    idx = pd.date_range("2020-01-01 09:30", periods=200, freq="1min")
+    prices = pd.Series(100 + np.arange(200) * 0.01, index=idx)
+    df = pd.DataFrame({
+        "open": prices - 0.5,
+        "high": prices + 1,
+        "low": prices - 1,
+        "close": prices,
+        "volume": 1000000,
+    })
+
+    monkeypatch.setattr(
+        "src.pipeline.data_fetcher_yahoo.YahooDataFetcher.fetch_ohlcv",
+        lambda *a, **k: df.copy(),
+    )
+    monkeypatch.setattr(
+        "src.pipeline.pipeline.reindex_and_backfill",
+        lambda df_in, **kw: df_in,
+    )
+
+    out_dir = tmp_path / "demo_out"
+    out_dir.mkdir()
+    sys.argv = [
+        "run_demo",
+        "--symbol", "SPY",
+        "--period", "5d",
+        "--interval", "1m",
+        "--output-dir", str(out_dir),
+        "--no-lock",
+        "--no-cost-sensitivity",
+    ]
+
+    proj_root = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "run_demo", proj_root / "scripts" / "run_demo.py"
+    )
+    run_demo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(run_demo)
+    run_demo.main()
+
+    out = capsys.readouterr().out
+    assert "Using intraday defaults: lookback=50 min_hold=30 decision_interval=30" in out
+    # Verify config in summary.json reflects those values
+    summary = json.loads((out_dir / "summary.json").read_text(encoding="utf-8"))
+    cfg = summary.get("config", {})
+    assert cfg.get("lookback") == 50
+    assert cfg.get("min_hold_bars") == 30
+    assert cfg.get("decision_interval_bars") == 30
 
 
 def test_run_demo_writes_to_output_dir_without_touching_root(tmp_path: Path, monkeypatch) -> None:

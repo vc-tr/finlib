@@ -51,9 +51,9 @@ def main() -> None:
     parser.add_argument("--symbol", default="SPY", help="Ticker symbol")
     parser.add_argument("--period", default="2y", help="Data period (e.g. 30d, 2y)")
     parser.add_argument("--interval", default="1d", choices=["1d", "1h", "1m", "5m"], help="Bar interval")
-    parser.add_argument("--lookback", type=int, default=20, help="Momentum lookback")
-    parser.add_argument("--min-hold-bars", type=int, default=None, help="Min bars to hold (default: 1 for 1d, 5 for 1m)")
-    parser.add_argument("--decision-interval-bars", type=int, default=None, help="Only allow position changes every K bars (default: 1 for 1d, 15 for 1m)")
+    parser.add_argument("--lookback", type=int, default=None, help="Momentum lookback (default: 20 for 1d, 50 for 1m)")
+    parser.add_argument("--min-hold-bars", type=int, default=None, help="Min bars to hold (default: 1 for 1d, 30 for 1m)")
+    parser.add_argument("--decision-interval-bars", type=int, default=None, help="Only allow position changes every K bars (default: 1 for 1d, 30 for 1m)")
     parser.add_argument("--fee-bps", type=float, default=1.0, help="Fee in bps per trade")
     parser.add_argument("--slippage-bps", type=float, default=2.0, help="Slippage in bps")
     parser.add_argument("--spread-bps", type=float, default=1.0, help="Spread proxy in bps")
@@ -97,11 +97,26 @@ def main() -> None:
             print(f"[WARN] {args.interval} data limited to ~{cap}; capping period from {args.period} to {cap}")
             args.period = cap
 
-    # min_hold_bars default: 1 for daily, 5 for minute
+    # Intraday (1m) defaults when user did not explicitly set
+    if args.interval == "1m":
+        if args.lookback is None:
+            args.lookback = 50
+        if args.min_hold_bars is None:
+            args.min_hold_bars = 30
+        if args.decision_interval_bars is None:
+            args.decision_interval_bars = 30
+        if (
+            args.lookback == 50
+            and args.min_hold_bars == 30
+            and args.decision_interval_bars == 30
+        ):
+            print("Using intraday defaults: lookback=50 min_hold=30 decision_interval=30")
+
+    # 1d and other intervals: standard defaults
+    if args.lookback is None:
+        args.lookback = 20
     if args.min_hold_bars is None:
         args.min_hold_bars = 5 if args.interval in ("1m", "5m") else 1
-
-    # decision_interval_bars default: 1 for daily, 15 for minute
     if args.decision_interval_bars is None:
         args.decision_interval_bars = 15 if args.interval in ("1m", "5m") else 1
 
