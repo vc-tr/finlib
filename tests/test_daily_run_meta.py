@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.daily_run import _build_run_meta, _write_run_meta
+from src.ops import build_run_meta, write_run_meta
 
 
 REQUIRED_KEYS = [
@@ -38,12 +38,12 @@ REQUIRED_KEYS = [
 ]
 
 
-def test_write_run_meta_creates_file(tmp_path: Path) -> None:
+def testwrite_run_meta_creates_file(tmp_path: Path) -> None:
     """run_meta.json is written and contains required keys."""
     output_dir = tmp_path / "run"
     output_dir.mkdir()
 
-    meta = _build_run_meta(
+    meta = build_run_meta(
         output_dir=output_dir,
         state_path=tmp_path / "state.json",
         state_loaded=True,
@@ -64,7 +64,7 @@ def test_write_run_meta_creates_file(tmp_path: Path) -> None:
         },
     )
 
-    path = _write_run_meta(output_dir, meta)
+    path = write_run_meta(output_dir, meta)
     assert path.exists()
     assert path.name == "run_meta.json"
 
@@ -78,7 +78,7 @@ def test_run_meta_serializes_numpy_pandas(tmp_path: Path) -> None:
     output_dir = tmp_path / "run"
     output_dir.mkdir()
 
-    meta = _build_run_meta(
+    meta = build_run_meta(
         output_dir=output_dir,
         state_path=tmp_path / "state.json",
         state_loaded=np.bool_(True),
@@ -103,7 +103,7 @@ def test_run_meta_serializes_numpy_pandas(tmp_path: Path) -> None:
     meta["rebalance_day"] = np.bool_(False)
     meta["beta"] = np.float64(0.1)
 
-    path = _write_run_meta(output_dir, meta)
+    path = write_run_meta(output_dir, meta)
     loaded = json.loads(path.read_text())
 
     assert loaded["state_loaded"] is True
@@ -118,7 +118,7 @@ def test_run_meta_error_status(tmp_path: Path) -> None:
     output_dir = tmp_path / "run"
     output_dir.mkdir()
 
-    meta = _build_run_meta(
+    meta = build_run_meta(
         output_dir=output_dir,
         state_path=tmp_path / "state.json",
         state_loaded=False,
@@ -135,7 +135,7 @@ def test_run_meta_error_status(tmp_path: Path) -> None:
         error="No price data",
     )
 
-    path = _write_run_meta(output_dir, meta)
+    path = write_run_meta(output_dir, meta)
     loaded = json.loads(path.read_text())
 
     assert loaded["status"] == "error"

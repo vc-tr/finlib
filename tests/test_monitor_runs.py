@@ -9,13 +9,13 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.monitor_runs import (
-    _run_monitor,
+from src.ops import (
+    REQUIRED_FILES,
+    _parse_timestamp_prefix,
     _run_metrics,
     _run_type,
     _scan_runs,
-    _parse_timestamp_prefix,
-    REQUIRED_FILES,
+    run_monitor as _run_monitor,
 )
 
 

@@ -11,7 +11,7 @@ import pytest
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from scripts.daily_run import _run_daily, _load_current_portfolio, _save_current_portfolio
+from src.ops import load_current_portfolio, run_daily, save_current_portfolio
 from src.utils.jsonable import to_jsonable
 
 
@@ -43,7 +43,7 @@ def test_daily_run_produces_orders_to_place(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     output_dir.mkdir(parents=True)
 
-    result = _run_daily(
+    result = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="momentum_12_1",
@@ -83,7 +83,7 @@ def test_daily_run_creates_risk_checks(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     output_dir.mkdir(parents=True)
 
-    result = _run_daily(
+    result = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="momentum_12_1",
@@ -127,7 +127,7 @@ def test_daily_run_thresholds_enforced(tmp_path: Path) -> None:
     output_dir = tmp_path / "out"
     output_dir.mkdir(parents=True)
 
-    result = _run_daily(
+    result = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="momentum_12_1",
@@ -179,13 +179,13 @@ def test_to_jsonable_serializes_numpy_pandas(tmp_path: Path) -> None:
 def test_load_save_portfolio(tmp_path: Path) -> None:
     """Load/save portfolio state."""
     p = tmp_path / "portfolio.json"
-    loaded = _load_current_portfolio(p)
+    loaded = load_current_portfolio(p)
     assert loaded["cash"] == 0.0
     assert loaded["positions"] == {}
     assert loaded["asof"] is None
 
-    _save_current_portfolio(p, 50_000.0, {"SPY": 100.0, "QQQ": 50.0}, "2024-06-01")
-    loaded2 = _load_current_portfolio(p)
+    save_current_portfolio(p, 50_000.0, {"SPY": 100.0, "QQQ": 50.0}, "2024-06-01")
+    loaded2 = load_current_portfolio(p)
     assert loaded2["cash"] == 50_000.0
     assert loaded2["positions"] == {"SPY": 100.0, "QQQ": 50.0}
     assert loaded2["asof"] == "2024-06-01"
@@ -200,7 +200,7 @@ def test_turnover_zero_when_weights_match(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
 
     # First run to get target weights and save state (reversal_5d needs only 5d lookback)
-    result1 = _run_daily(
+    result1 = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="reversal_5d",
@@ -227,7 +227,7 @@ def test_turnover_zero_when_weights_match(tmp_path: Path) -> None:
     assert "error" not in result1
 
     # Second run: load the state we just saved (portfolio matches target)
-    result2 = _run_daily(
+    result2 = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="reversal_5d",
@@ -264,7 +264,7 @@ def test_turnover_from_cash_near_100pct(tmp_path: Path) -> None:
     output_dir.mkdir(parents=True)
     state_path = tmp_path / "nonexistent_state.json"  # No prior state = cash
 
-    result = _run_daily(
+    result = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="reversal_5d",
@@ -307,7 +307,7 @@ def test_state_saved_then_loaded_decreases_turnover(tmp_path: Path) -> None:
     out2.mkdir(parents=True)
 
     # Run 1: from cash, apply to save state (reversal_5d needs only 5d lookback)
-    result1 = _run_daily(
+    result1 = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="reversal_5d",
@@ -335,7 +335,7 @@ def test_state_saved_then_loaded_decreases_turnover(tmp_path: Path) -> None:
     turnover1 = result1["turnover"]
 
     # Run 2: load state, same asof (target weights unchanged)
-    result2 = _run_daily(
+    result2 = run_daily(
         df_by_symbol,
         strategy="factors",
         factor="reversal_5d",
