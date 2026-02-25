@@ -48,6 +48,9 @@ def main() -> None:
     parser.add_argument("--min_holds", default="1,5,15", help="Comma-separated min_hold_bars")
     parser.add_argument("--decision_intervals", default="1,15", help="Comma-separated decision_interval_bars")
     parser.add_argument("--force", action="store_true", help="Allow period > cap for 1m (e.g. >7d)")
+    parser.add_argument("--output-dir", help="Output directory (default: output/runs/<timestamp>_sweep_<symbol>_<interval>/)")
+    parser.add_argument("--no-lock", action="store_true", help="Disable global run lock")
+    parser.add_argument("--lock-timeout", type=float, default=0, metavar="SEC", help="Seconds to wait for lock (default 0)")
     args = parser.parse_args()
 
     lookbacks = [int(x.strip()) for x in args.lookbacks.split(",")]
@@ -113,14 +116,21 @@ def main() -> None:
         if (i + 1) % 10 == 0 or i + 1 == len(combos):
             print(f"  {i + 1}/{len(combos)} combos done")
 
+    # Output directory: explicit or default output/runs/<timestamp>_sweep_<symbol>_<interval>/
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path("output") / "runs" / f"{ts}_sweep_{args.symbol}_{args.interval}"
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     # Save CSV
-    out_dir = Path("output/sweeps")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    out_path = out_dir / f"momentum_{ts}.csv"
+    out_path = output_dir / "momentum_results.csv"
     df_out = pd.DataFrame(rows)
     df_out.to_csv(out_path, index=False)
     print(f"\nSaved {out_path}")
+    print(f"Output directory: {output_dir}")
 
     # Top 5 by Sharpe and by total return
     by_sharpe = df_out.sort_values("sharpe", ascending=False).head(5)
@@ -134,12 +144,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    _no_lock = "--no-lock" in sys.argv
-    if _no_lock:
-        sys.argv.remove("--no-lock")
-    if _no_lock:
+    _parser = argparse.ArgumentParser()
+    _parser.add_argument("--no-lock", action="store_true")
+    _parser.add_argument("--lock-timeout", type=float, default=0)
+    _pre, _ = _parser.parse_known_args()
+    if _pre.no_lock:
         main()
     else:
         from src.utils.runlock import RunLock
-        with RunLock():
+        _lock_path = Path(__file__).resolve().parent.parent / ".runlock"
+        with RunLock(lock_path=str(_lock_path), timeout_s=_pre.lock_timeout):
             main()

@@ -64,7 +64,9 @@ def main() -> None:
     parser.add_argument("--no-cache", action="store_true", help="Disable cache (always fetch)")
     parser.add_argument("--period-override", action="store_true", help="Allow period > cap for minute data")
     parser.add_argument("--force", action="store_true", help="Alias for --period-override (bypass period cap)")
-    parser.add_argument("--output-dir", help="Output directory for artifacts (default: output/runs/<timestamp>_<symbol>_<interval>/)")
+    parser.add_argument("--output-dir", help="Output directory for artifacts (default: output/runs/<timestamp>_demo_<symbol>_<interval>/)")
+    parser.add_argument("--no-lock", action="store_true", help="Disable global run lock")
+    parser.add_argument("--lock-timeout", type=float, default=0, metavar="SEC", help="Seconds to wait for lock (default 0 = exit immediately)")
     args = parser.parse_args()
 
     # Load config if provided
@@ -103,12 +105,12 @@ def main() -> None:
     if args.decision_interval_bars is None:
         args.decision_interval_bars = 15 if args.interval in ("1m", "5m") else 1
 
-    # Output directory: explicit or default output/runs/<timestamp>_<symbol>_<interval>/
+    # Output directory: explicit or default output/runs/<timestamp>_demo_<symbol>_<interval>/
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path("output") / "runs" / f"{ts}_{args.symbol}_{args.interval}"
+        output_dir = Path("output") / "runs" / f"{ts}_demo_{args.symbol}_{args.interval}"
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -237,12 +239,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    _no_lock = "--no-lock" in sys.argv
-    if _no_lock:
-        sys.argv.remove("--no-lock")
-    if _no_lock:
+    _parser = argparse.ArgumentParser()
+    _parser.add_argument("--no-lock", action="store_true")
+    _parser.add_argument("--lock-timeout", type=float, default=0)
+    _pre, _ = _parser.parse_known_args()
+    if _pre.no_lock:
         main()
     else:
         from src.utils.runlock import RunLock
-        with RunLock():
+        _lock_path = Path(__file__).resolve().parent.parent / ".runlock"
+        with RunLock(lock_path=str(_lock_path), timeout_s=_pre.lock_timeout):
             main()

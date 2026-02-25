@@ -29,6 +29,7 @@ Thumbs.db
 
 # Logs and experiment artifacts
 *.log
+.runlock
 runs/
 mlruns/
 figures/
