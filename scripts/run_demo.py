@@ -65,6 +65,7 @@ def main() -> None:
     parser.add_argument("--period-override", action="store_true", help="Allow period > cap for minute data")
     parser.add_argument("--force", action="store_true", help="Alias for --period-override (bypass period cap)")
     parser.add_argument("--output-dir", help="Output directory for artifacts (default: output/runs/<timestamp>_demo_<symbol>_<interval>/)")
+    parser.add_argument("--no-mirror", action="store_true", help="Do not copy to output/latest (for bundle use)")
     parser.add_argument("--no-lock", action="store_true", help="Disable global run lock")
     parser.add_argument("--lock-timeout", type=float, default=0, metavar="SEC", help="Seconds to wait for lock (default 0 = exit immediately)")
     args = parser.parse_args()
@@ -243,11 +244,12 @@ def main() -> None:
         }
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
-    # Mirror to output/latest (delete and recreate)
-    latest_dir = Path("output") / "latest"
-    if latest_dir.exists():
-        shutil.rmtree(latest_dir)
-    shutil.copytree(str(output_dir), str(latest_dir))
+    # Mirror to output/latest (delete and recreate) unless --no-mirror
+    if not getattr(args, "no_mirror", False):
+        latest_dir = Path("output") / "latest"
+        if latest_dir.exists():
+            shutil.rmtree(latest_dir)
+        shutil.copytree(str(output_dir), str(latest_dir))
 
     print(f"  Saved to {output_dir}/")
     print(f"\nOutput directory: {output_dir}")

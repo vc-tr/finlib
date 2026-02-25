@@ -71,6 +71,18 @@ python scripts/walkforward_demo.py --symbol SPY --interval 1d --folds 6 --train-
 
 ---
 
+## One Command Research Bundle
+
+Generate a recruiter-friendly packet (daily demo, walk-forward, intraday demo, sweep) in one run:
+
+```bash
+python scripts/make_research_bundle.py --symbol SPY
+```
+
+Output: `output/runs/<timestamp>_bundle_SPY/` with subfolders `daily_demo/`, `walkforward/`, `intraday_demo/`, `sweep/`, plus `INDEX.md` and `output/latest/` mirror.
+
+---
+
 ## Repo Layout
 
 ```
@@ -79,7 +91,7 @@ quant-forecast/
 ├── src/strategies/   # Momentum, mean reversion, papers
 ├── src/pipeline/     # Data fetchers, features
 ├── src/reporting/    # Tear-sheet generation
-├── scripts/          # run_demo.py, walkforward.py
+├── scripts/          # run_demo.py, walkforward_demo.py, make_research_bundle.py
 ├── configs/          # JSON configs
 ├── output/           # Tear-sheet outputs
 └── tests/
