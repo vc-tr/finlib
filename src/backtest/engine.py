@@ -9,6 +9,8 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Optional, Callable
 
+from .execution import ExecutionConfig, apply_execution_realism
+
 
 @dataclass
 class BacktestResult:
@@ -111,8 +113,21 @@ class Backtester:
         self,
         prices: pd.Series,
         signals: pd.Series,
+        execution_config: Optional[ExecutionConfig] = None,
     ) -> BacktestResult:
-        """Backtest from price series and signals (-1, 0, 1)."""
-        returns = prices.pct_change()
-        strategy_returns = signals.shift(1).fillna(0) * returns
+        """
+        Backtest from price series and signals (-1, 0, 1).
+
+        No lookahead: signal at close t executes at bar t+1.
+
+        Args:
+            prices: Close prices
+            signals: Target position in {-1, 0, 1}
+            execution_config: Optional fees, slippage, timing. If None, raw execution.
+        """
+        if execution_config is not None:
+            strategy_returns = apply_execution_realism(prices, signals, execution_config)
+        else:
+            returns = prices.pct_change()
+            strategy_returns = signals.shift(1).fillna(0) * returns
         return self.run(strategy_returns, align_prices=prices)

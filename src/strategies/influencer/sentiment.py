@@ -1,5 +1,5 @@
 """
-Sentiment-based trading strategy.
+ARCHIVED: Sentiment-based trading strategy.
 
 Designed for integration with external sentiment sources:
 - Reddit (r/wallstreetbets, r/stocks) via sentiment APIs

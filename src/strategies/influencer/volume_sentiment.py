@@ -1,5 +1,5 @@
 """
-Volume + price momentum as a proxy for "crowd sentiment".
+ARCHIVED: Volume + price momentum as a proxy for "crowd sentiment".
 
 When you don't have explicit sentiment data, use volume spikes + price direction
 as a proxy for retail/influencer-driven moves (e.g. WSB-style pumps).

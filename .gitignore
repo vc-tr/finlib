@@ -15,15 +15,13 @@ __pycache__/
 # IDE files
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
 # OS files
 .DS_Store
 Thumbs.db
-
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
 
 # Environment variables
 .env.local
@@ -35,6 +33,7 @@ runs/
 mlruns/
 figures/
 data/*.csv
+output/
 
 # Database files
 *.db
