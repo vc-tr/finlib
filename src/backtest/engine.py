@@ -7,7 +7,7 @@ Supports both rule-based strategies (signals) and model-based forecasts.
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Callable, Union
 
 from .execution import ExecutionConfig, apply_execution_realism
 
@@ -52,6 +52,7 @@ class Backtester:
         self,
         strategy_returns: pd.Series,
         align_prices: Optional[pd.Series] = None,
+        n_trades_override: Optional[int] = None,
     ) -> BacktestResult:
         """
         Run backtest on strategy returns.
@@ -94,10 +95,16 @@ class Backtester:
         drawdown = (cum - rolling_max) / rolling_max
         max_drawdown = abs(drawdown.min())
 
-        # Trade count (simplified: count sign changes in returns)
-        n_trades = (strategy_returns.abs() > 1e-8).sum()
+        # Trade count: use override if provided, else count periods with nonzero returns
+        n_trades = (
+            int(n_trades_override)
+            if n_trades_override is not None
+            else (strategy_returns.abs() > 1e-8).sum()
+        )
+        # Win rate = fraction of bars with positive return (among bars with nonzero return)
+        active = (strategy_returns.abs() > 1e-8)
         wins = (strategy_returns > 0).sum()
-        win_rate = wins / n_trades if n_trades > 0 else 0.0
+        win_rate = wins / active.sum() if active.sum() > 0 else 0.0
 
         return BacktestResult(
             returns=strategy_returns,
@@ -111,7 +118,7 @@ class Backtester:
 
     def run_from_signals(
         self,
-        prices: pd.Series,
+        prices: Union[pd.Series, pd.DataFrame],
         signals: pd.Series,
         execution_config: Optional[ExecutionConfig] = None,
     ) -> BacktestResult:
@@ -121,13 +128,18 @@ class Backtester:
         No lookahead: signal at close t executes at bar t+1.
 
         Args:
-            prices: Close prices
+            prices: Close prices (Series) or OHLCV DataFrame with 'close' column
             signals: Target position in {-1, 0, 1}
             execution_config: Optional fees, slippage, timing. If None, raw execution.
         """
+        if isinstance(prices, pd.DataFrame):
+            prices = prices["close"] if "close" in prices.columns else prices.iloc[:, 0]
         if execution_config is not None:
-            strategy_returns = apply_execution_realism(prices, signals, execution_config)
+            strategy_returns, pos = apply_execution_realism(prices, signals, execution_config)
         else:
             returns = prices.pct_change()
-            strategy_returns = signals.shift(1).fillna(0) * returns
-        return self.run(strategy_returns, align_prices=prices)
+            pos = signals.shift(1).fillna(0)
+            strategy_returns = pos * returns
+        # Trade count = position changes only (enter/exit), not every bar with exposure
+        n_trades = int((pos.diff().abs() > 1e-8).sum())
+        return self.run(strategy_returns, align_prices=prices, n_trades_override=n_trades)
