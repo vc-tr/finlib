@@ -2,19 +2,18 @@
 Tests for training functionality.
 """
 
+import sys
+from pathlib import Path
+
+import numpy as np
 import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
-import numpy as np
-import sys
-import os
 
-# Add src to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
-sys.path.append(os.path.dirname(__file__))  # Add current directory for train import
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from models.lstm import PriceLSTM
+from src.models.lstm import PriceLSTM
 
 
 def test_lstm_model():

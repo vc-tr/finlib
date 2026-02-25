@@ -8,7 +8,7 @@ src/
 │   ├── engine.py      # Backtester, BacktestResult
 │   ├── execution.py  # ExecutionConfig, fees/slippage
 │   ├── cost_models.py # FixedBpsCostModel, LiquidityAwareCostModel
-│   ├── walkforward.py # Rolling OOS evaluation
+│   ├── walkforward_demo.py # Rolling OOS evaluation
 │   └── factor_backtest.py  # Cross-sectional factor backtest logic
 ├── factors/           # Factor construction and portfolio
 │   ├── factors.py    # compute_factor, get_prices_wide

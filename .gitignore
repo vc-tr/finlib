@@ -47,5 +47,9 @@ htmlcov/
 .coverage
 .pytest_cache/
 
+# Jupyter notebooks (project uses scripts, not notebooks)
+*.ipynb
+.ipynb_checkpoints/
+
 # Local-only (never commit)
-docs/RECRUITER_PITCH.md 
+docs/RECRUITER_PITCH.md

@@ -48,16 +48,13 @@
 
 ---
 
-## What Is Broken
+## What Is Broken / Limitations
 
 | Item | Details |
 |------|---------|
-| AlphaDataFetcher test | KeyError on columns — Alpha Vantage returns different column names |
-| DL tests (test_lstm, test_model_variants, test_train) | ImportError: No module named 'torch' — env may lack torch, or tests should be optional |
-| No single "run demo" command | Multiple scripts, no one-liner for recruiter |
-| No execution realism | No fees, slippage, or execution timing |
-| No walk-forward | No rolling train/test evaluation |
-| No tear-sheet | No HTML/PNG report generation |
+| AlphaDataFetcher test | KeyError on columns — Alpha Vantage returns different column names; requires API key |
+| DL tests (test_lstm, test_model_variants, test_train) | ImportError if torch not installed — run with `--ignore` or install torch |
+| scripts/walkforward.py | Removed — use `walkforward_demo.py` instead |
 
 ---
 
@@ -71,16 +68,16 @@
 
 ---
 
-## Quick Wins
+## Quick Wins (Completed)
 
-1. **Create `scripts/run_demo.py`** — One command: data → strategy → backtest → (future: tearsheet)
-2. **Pick Momentum as flagship** — Simplest, most credible, already tested
-3. **Add `src/backtest/execution.py`** — Fee/slippage/timing; integrate into Backtester
-4. **Add `src/reporting/tearsheet.py`** — Matplotlib-based HTML + PNG
-5. **Add `scripts/walkforward.py`** — Rolling OOS evaluation
-6. **Mark influencer/sentiment as archived** — Move to `src/archive/` or add ARCHIVED header
+1. ~~Create `scripts/run_demo.py`~~ — Done
+2. ~~Pick Momentum as flagship~~ — Done
+3. ~~Add `src/backtest/execution.py`~~ — Done
+4. ~~Add `src/reporting/tearsheet.py`~~ — Done
+5. ~~Add `scripts/walkforward_demo.py`~~ — Done (replaces legacy walkforward.py)
+6. ~~Mark influencer/sentiment as archived~~ — ARCHIVED header in volume_sentiment, sentiment
 7. **Fix or skip Alpha fetcher test** — Mark as integration test requiring API key
-8. **Slim requirements** — Remove unused deps for demo path (torch optional for core backtest)
+8. **Slim requirements** — torch optional for core backtest
 
 ---
 
@@ -88,6 +85,12 @@
 
 | Script | Purpose |
 |--------|---------|
+| `run_demo.py` | One-command demo: data → strategy → backtest → tear-sheet |
+| `walkforward_demo.py` | Rolling OOS evaluation |
+| `backtest_factors.py` | Cross-sectional factor backtest |
+| `replay_trade.py` | Paper trading replay |
+| `daily_run.py` | Production daily pipeline |
+| `monitor_runs.py` | Monitor last N runs |
 | `backtest_strategies.py` | Core + optional extended strategies |
 | `backtest_papers.py` | Academic (Moskowitz, De Bondt-Thaler, GGR) |
 | `backtest_portfolio.py` | Multi-strategy allocation |

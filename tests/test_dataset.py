@@ -10,12 +10,13 @@ import pytest
 import numpy as np
 from typing import List, Tuple
 
-# Import our scheduler functions
 import sys
-import os
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
+from pathlib import Path
 
-from pipeline.scheduler import (
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+from src.pipeline.scheduler import (
     block_time_series_split,
     rolling_window_split,
     validate_time_series_split,
