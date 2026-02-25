@@ -134,3 +134,31 @@ def learn_weights_sharpe(
         return {n: 1.0 / len(names) for n in names}
     w = w / w.sum()
     return {n: float(w[i]) for i, n in enumerate(names)}
+
+
+def apply_shrinkage(
+    weights: Dict[str, float],
+    shrinkage: float,
+) -> Dict[str, float]:
+    """
+    Shrink learned weights toward equal weights.
+
+    w_final = (1 - shrinkage) * w_learned + shrinkage * w_equal
+    Then renormalize to sum to 1.
+
+    Args:
+        weights: {factor_name: weight} from any learning method
+        shrinkage: Fraction toward equal (0 = no shrinkage, 1 = full equal)
+
+    Returns:
+        Shrunk weights summing to 1
+    """
+    if not weights:
+        return {}
+    n = len(weights)
+    w_equal = 1.0 / n
+    w_shrunk = {k: (1 - shrinkage) * v + shrinkage * w_equal for k, v in weights.items()}
+    total = sum(w_shrunk.values())
+    if total < 1e-12:
+        return {k: 1.0 / n for k in weights}
+    return {k: v / total for k, v in w_shrunk.items()}

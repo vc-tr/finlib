@@ -7,13 +7,13 @@ import pandas as pd
 from typing import Any, Dict, Literal, Optional
 
 from .portfolio import build_portfolio, weights_at_rebalance
-from .research import forward_returns
-from .weight_learning import learn_weights_ic, learn_weights_ridge, learn_weights_sharpe
+from .research import cross_sectional_ic, forward_returns, summarize_ic
+from .weight_learning import apply_shrinkage, learn_weights_ic, learn_weights_ridge, learn_weights_sharpe
 
 
 def combine_factors(
     factors: dict[str, pd.DataFrame],
-    method: Literal["equal", "ic_weighted", "ridge", "sharpe_opt", "auto"] = "equal",
+    method: Literal["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"] = "equal",
     train_slice: Optional[slice] = None,
     fwd_returns: Optional[pd.DataFrame] = None,
     fwd_returns_dict: Optional[Dict[int, pd.DataFrame]] = None,
@@ -24,6 +24,10 @@ def combine_factors(
     ridge_alpha: float = 1.0,
     sharpe_l2: float = 0.5,
     cost_bps: float = 4.0,
+    auto_metric: Literal["val_sharpe", "val_ic_ir"] = "val_ic_ir",
+    val_split: float = 0.3,
+    shrinkage: float = 0.5,
+    val_ic_horizon: int = 1,
 ) -> tuple[pd.DataFrame, dict, dict[str, pd.DataFrame], dict[str, Any]]:
     """
     Combine multiple factors into a single composite factor.
@@ -214,6 +218,123 @@ def combine_factors(
         zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
         combined = sum(best_weights[n] * zscored[n] for n in names)
         return combined, best_weights, zscored, meta
+
+    if method == "auto_robust":
+        if train_slice is None or prices is None:
+            raise ValueError("auto_robust requires train_slice and prices")
+        train_idx = _slice_to_index(common_idx, train_slice)
+        if len(train_idx) < 30:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
+
+        if fwd_returns_dict is None:
+            fwd_returns_dict = forward_returns(prices, horizons=[1, 5, 21])
+        if fwd_returns is None:
+            fwd_returns = fwd_returns_dict.get(1, prices.pct_change().shift(-1))
+
+        # Chronological split: train_sub = first (1-val_split), val_sub = last val_split
+        n_train = len(train_idx)
+        n_val = max(5, int(n_train * val_split))
+        n_train_sub = n_train - n_val
+        if n_train_sub < 20:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
+
+        train_sub_idx = train_idx[:n_train_sub]
+        val_sub_idx = train_idx[-n_val:]
+
+        candidates = ["equal", "ic_weighted", "ridge", "sharpe_opt"]
+        best_score = -np.inf
+        best_weights_raw = {n: 1.0 / len(names) for n in names}
+        best_method = "equal"
+
+        for cand in candidates:
+            try:
+                if cand == "equal":
+                    c, w, z = _combine_one(aligned, names, "equal", None)
+                elif cand == "ic_weighted":
+                    ts_sub = slice(train_sub_idx[0], train_sub_idx[-1])
+                    c, w, z = _combine_one(
+                        aligned, names, "ic_weighted", train_sub_idx,
+                        fwd_returns_dict=fwd_returns_dict,
+                    )
+                elif cand == "ridge":
+                    c, w, z = _combine_one(
+                        aligned, names, "ridge", train_sub_idx,
+                        fwd_returns=fwd_returns,
+                        ridge_alpha=ridge_alpha,
+                    )
+                else:
+                    c, w, z = _combine_one(
+                        aligned, names, "sharpe_opt", train_sub_idx,
+                        prices=prices, top_k=top_k, bottom_k=bottom_k,
+                        rebalance=rebalance, sharpe_l2=sharpe_l2,
+                    )
+
+                if auto_metric == "val_sharpe":
+                    val_ret = _train_portfolio_returns(
+                        c, val_sub_idx, prices, top_k, bottom_k, rebalance, cost_bps,
+                    )
+                    score = _sharpe(val_ret)
+                else:
+                    fwd_val = fwd_returns_dict.get(val_ic_horizon, fwd_returns)
+                    fwd_val = fwd_val.reindex(val_sub_idx)
+                    c_val = c.reindex(val_sub_idx).dropna(how="all")
+                    common_val = c_val.index.intersection(fwd_val.index)
+                    if len(common_val) < 5:
+                        score = -np.inf
+                    else:
+                        ic_s = cross_sectional_ic(
+                            c.reindex(common_val),
+                            fwd_val.reindex(common_val),
+                            method="spearman",
+                        )
+                        s = summarize_ic(ic_s)
+                        ir = s.get("ir")
+                        score = ir if ir is not None and np.isfinite(ir) else -np.inf
+
+                if score > best_score:
+                    best_score = score
+                    best_weights_raw = w
+                    best_method = cand
+            except Exception:
+                continue
+
+        # Refit on full train window using best method
+        try:
+            if best_method == "equal":
+                _, best_weights_raw, _ = _combine_one(aligned, names, "equal", None)
+            elif best_method == "ic_weighted":
+                _, best_weights_raw, _ = _combine_one(
+                    aligned, names, "ic_weighted", train_idx,
+                    fwd_returns_dict=fwd_returns_dict,
+                )
+            elif best_method == "ridge":
+                _, best_weights_raw, _ = _combine_one(
+                    aligned, names, "ridge", train_idx,
+                    fwd_returns=fwd_returns,
+                    ridge_alpha=ridge_alpha,
+                )
+            else:
+                _, best_weights_raw, _ = _combine_one(
+                    aligned, names, "sharpe_opt", train_idx,
+                    prices=prices, top_k=top_k, bottom_k=bottom_k,
+                    rebalance=rebalance, sharpe_l2=sharpe_l2,
+                )
+        except Exception:
+            pass
+
+        weights_final = apply_shrinkage(best_weights_raw, shrinkage)
+        meta["selected_method"] = best_method
+        meta["val_score"] = float(best_score)
+        meta["weights_before_shrink"] = {k: float(v) for k, v in best_weights_raw.items()}
+        meta["weights_final"] = {k: float(v) for k, v in weights_final.items()}
+
+        zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+        combined = sum(weights_final[n] * zscored[n] for n in names)
+        return combined, weights_final, zscored, meta
 
     raise ValueError(f"Unknown method: {method}")
 

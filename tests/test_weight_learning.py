@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from src.factors.weight_learning import (
+    apply_shrinkage,
     learn_weights_ic,
     learn_weights_ridge,
     learn_weights_sharpe,
@@ -90,6 +91,69 @@ def test_auto_selects_predictive_factor():
     )
     assert meta.get("selected_method") in ["equal", "ic_weighted", "ridge", "sharpe_opt"]
     assert weights["good"] >= weights["noise"] or meta["selected_method"] == "equal"
+
+
+def test_apply_shrinkage_moves_toward_equal() -> None:
+    """Shrinkage moves weights toward equal: w_final = (1-s)*w + s*w_equal."""
+    weights = {"A": 0.7, "B": 0.2, "C": 0.1}
+    shrunk = apply_shrinkage(weights, shrinkage=0.5)
+    # w_equal = 1/3 each. w_final = 0.5*w + 0.5*(1/3)
+    # A: 0.5*0.7 + 0.5/3 = 0.35 + 0.1667 = 0.5167
+    # B: 0.5*0.2 + 0.5/3 = 0.1 + 0.1667 = 0.2667
+    # C: 0.5*0.1 + 0.5/3 = 0.05 + 0.1667 = 0.2167
+    assert abs(sum(shrunk.values()) - 1.0) < 1e-6
+    assert shrunk["A"] < weights["A"]
+    assert shrunk["C"] > weights["C"]
+    # Full shrinkage => equal
+    equal = apply_shrinkage(weights, shrinkage=1.0)
+    for v in equal.values():
+        assert abs(v - 1.0 / 3) < 1e-6
+
+
+def test_auto_robust_selects_stable_factor() -> None:
+    """Factor A predictive in both train and val; B predictive only in early train, not in val.
+    auto_robust should prefer A (stable) over B (overfits)."""
+    n_dates, n_symbols = 120, 12
+    rng = np.random.RandomState(42)
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    cols = [f"S{i}" for i in range(n_symbols)]
+
+    ret = rng.randn(n_dates, n_symbols) * 0.01
+    close = 100 * (1 + pd.DataFrame(ret, index=idx, columns=cols)).cumprod()
+    fwd_1 = close.shift(-1) / close - 1
+
+    # Factor A: predictive throughout (stable)
+    factor_a = fwd_1 + rng.randn(n_dates, n_symbols) * 0.002
+
+    # Factor B: predictive only in first half (early train), noise in second half (val)
+    factor_b = pd.DataFrame(rng.randn(n_dates, n_symbols), index=idx, columns=cols)
+    # Make B predictive in first 60 dates only
+    factor_b.iloc[:60] = fwd_1.iloc[:60].values + rng.randn(60, n_symbols) * 0.002
+
+    factors = {"A": factor_a, "B": factor_b}
+    fwd_dict = {1: fwd_1}
+    # Train = first 84 dates, val = last 36 (val_split 0.3)
+    # train_sub = first 58, val_sub = last 26 of train
+    ts = slice(idx[0], idx[83])
+    combined, weights, _, meta = combine_factors(
+        factors,
+        method="auto_robust",
+        train_slice=ts,
+        prices=close,
+        fwd_returns_dict=fwd_dict,
+        top_k=2,
+        bottom_k=2,
+        rebalance="M",
+        val_split=0.3,
+        shrinkage=0.3,
+        auto_metric="val_ic_ir",
+    )
+    # A should get higher weight than B (A is stable in val, B is not)
+    assert meta.get("selected_method") in ["equal", "ic_weighted", "ridge", "sharpe_opt"]
+    assert weights["A"] >= weights["B"] or meta["selected_method"] == "equal"
+    assert "val_score" in meta
+    assert "weights_before_shrink" in meta
+    assert "weights_final" in meta
 
 
 def test_embargo_shifts_test_start():

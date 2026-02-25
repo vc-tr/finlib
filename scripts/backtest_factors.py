@@ -199,6 +199,9 @@ def _get_factor_df(
     bottom_k: int = 10,
     rebalance: str = "M",
     cost_bps: float = 4.0,
+    auto_metric: str = "val_ic_ir",
+    val_split: float = 0.3,
+    shrinkage: float = 0.5,
 ) -> tuple[pd.DataFrame, dict | None, dict[str, pd.DataFrame] | None, dict]:
     """
     Get factor DataFrame for backtest. For single factor or combo.
@@ -212,6 +215,20 @@ def _get_factor_df(
     prices = get_prices_wide(df_by_symbol)
     fwd_returns = prices.pct_change().shift(-1)
     fwd_returns_dict = forward_returns(prices, horizons=[1, 5, 21])
+
+    combo_kw = dict(
+        fwd_returns=fwd_returns,
+        fwd_returns_dict=fwd_returns_dict,
+        prices=prices,
+        top_k=top_k,
+        bottom_k=bottom_k,
+        rebalance=rebalance,
+        cost_bps=cost_bps,
+    )
+    if combo_method == "auto_robust":
+        combo_kw["auto_metric"] = auto_metric
+        combo_kw["val_split"] = val_split
+        combo_kw["shrinkage"] = shrinkage
 
     if combo_method == "equal":
         combined, weights, zscored, meta = combine_factors(factors_dict, method="equal")
@@ -227,26 +244,14 @@ def _get_factor_df(
                     factors_dict,
                     method=combo_method,
                     train_slice=ts,
-                    fwd_returns=fwd_returns,
-                    fwd_returns_dict=fwd_returns_dict,
-                    prices=prices,
-                    top_k=top_k,
-                    bottom_k=bottom_k,
-                    rebalance=rebalance,
-                    cost_bps=cost_bps,
+                    **combo_kw,
                 )
         else:
             combined, weights, zscored, meta = combine_factors(
                 factors_dict,
                 method=combo_method,
                 train_slice=train_slice,
-                fwd_returns=fwd_returns,
-                fwd_returns_dict=fwd_returns_dict,
-                prices=prices,
-                top_k=top_k,
-                bottom_k=bottom_k,
-                rebalance=rebalance,
-                cost_bps=cost_bps,
+                **combo_kw,
             )
     return combined, weights, zscored, meta
 
@@ -267,6 +272,20 @@ def _run_walkforward(
     train_days: int,
     test_days: int,
     embargo_days: int = 1,
+    auto_metric: str = "val_ic_ir",
+    val_split: float = 0.3,
+    shrinkage: float = 0.5,
+    beta_neutral: bool = False,
+    market_symbol: str = "SPY",
+    beta_window: int = 252,
+    max_gross: float | None = None,
+    max_net: float | None = None,
+    cost_model: str = "fixed",
+    impact_k: float = 10.0,
+    impact_alpha: float = 0.5,
+    max_impact_bps: float = 50.0,
+    adv_window: int = 20,
+    portfolio_value: float = 1e6,
 ) -> dict:
     """Run walk-forward: use history up to test_end, evaluate on test window only."""
     from src.backtest.walkforward import generate_folds
@@ -295,9 +314,12 @@ def _run_walkforward(
 
         if factor == "combo" and combo_list:
             train_slice = slice(fold.train_start, fold.train_end)
+            cost_bps = fee_bps + slippage_bps + spread_bps
             factor_df, combo_weights, _, meta = _get_factor_df(
                 df_by_hist, factor, combo_list, combo_method, train_slice,
                 top_k=top_k, bottom_k=bottom_k, rebalance=rebalance,
+                cost_bps=cost_bps,
+                auto_metric=auto_metric, val_split=val_split, shrinkage=shrinkage,
             )
             if combo_weights is not None:
                 entry = {
@@ -308,12 +330,29 @@ def _run_walkforward(
                 }
                 if meta.get("selected_method"):
                     entry["selected_method"] = meta["selected_method"]
+                if meta.get("val_score") is not None:
+                    entry["val_score"] = meta["val_score"]
+                if meta.get("weights_before_shrink"):
+                    entry["weights_before_shrink"] = meta["weights_before_shrink"]
+                if meta.get("weights_final"):
+                    entry["weights_final"] = meta["weights_final"]
                 combo_weights_per_fold.append(entry)
         else:
             factor_df, _, _, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
         out = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
+            beta_neutral=beta_neutral,
+            market_symbol=market_symbol,
+            beta_window=beta_window,
+            max_gross=max_gross,
+            max_net=max_net,
+            cost_model=cost_model,
+            impact_k=impact_k,
+            impact_alpha=impact_alpha,
+            max_impact_bps=max_impact_bps,
+            adv_window=adv_window,
+            portfolio_value=portfolio_value,
         )
         result = out[0]
         test_ret = result.returns.loc[test_start:test_end].dropna()
@@ -374,8 +413,14 @@ def main() -> None:
     parser.add_argument("--combo", default=None,
                         help='Comma-separated factors for combo (e.g. "momentum_12_1,reversal_5d,lowvol_20d")')
     parser.add_argument("--combo-method", default="equal",
-                        choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto"],
-                        help="Combo weighting: equal, ic_weighted, ridge, sharpe_opt, auto")
+                        choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"],
+                        help="Combo weighting: equal, ic_weighted, ridge, sharpe_opt, auto, auto_robust")
+    parser.add_argument("--auto-metric", default="val_ic_ir", choices=["val_sharpe", "val_ic_ir"],
+                        help="For auto_robust: selection metric (default val_ic_ir)")
+    parser.add_argument("--val-split", type=float, default=0.3,
+                        help="For auto_robust: validation fraction of train window (default 0.3)")
+    parser.add_argument("--shrinkage", type=float, default=0.5,
+                        help="For auto_robust: weight shrinkage toward equal (default 0.5)")
     parser.add_argument("--rebalance", default="M", choices=["D", "W", "M"])
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--bottom-k", type=int, default=10)
@@ -453,6 +498,20 @@ def main() -> None:
             args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
             args.folds, args.train_days, args.test_days,
             embargo_days=args.embargo_days,
+            auto_metric=args.auto_metric,
+            val_split=args.val_split,
+            shrinkage=args.shrinkage,
+            beta_neutral=args.beta_neutral,
+            market_symbol=args.market_symbol,
+            beta_window=args.beta_window,
+            max_gross=args.max_gross,
+            max_net=args.max_net,
+            cost_model=args.cost_model,
+            impact_k=args.impact_k,
+            impact_alpha=args.impact_alpha,
+            max_impact_bps=args.max_impact_bps,
+            adv_window=args.adv_window,
+            portfolio_value=args.portfolio_value,
         )
         agg = wf_result["aggregated"]
         print(f"  Mean Sharpe: {agg['mean_sharpe']:.2f}")
@@ -547,14 +606,29 @@ def main() -> None:
                 f"| Agg Total Return | {agg['agg_total_return']:.2%} |",
                 f"| Folds | {agg['n_folds']} |",
                 "",
+            ]
+            if args.combo_method == "auto_robust":
+                report_lines.extend([
+                    "## Auto-Robust Config",
+                    "",
+                    f"| Setting | Value |",
+                    f"|---------|-------|",
+                    f"| Selection metric | {args.auto_metric} |",
+                    f"| Val split | {args.val_split} |",
+                    f"| Shrinkage | {args.shrinkage} |",
+                    "",
+                ])
+            report_lines.extend([
                 "## Combo Weights by Fold",
                 "",
-                "| Fold | Test Start | Test End | Selected Method |",
-                "|------|------------|----------|-----------------|",
-            ]
+                "| Fold | Test Start | Test End | Selected Method | Val Score |",
+                "|------|------------|----------|-----------------|-----------|",
+            ])
             for e in cw:
                 method = e.get("selected_method", args.combo_method)
-                report_lines.append(f"| {e['fold_idx']} | {e['test_start']} | {e['test_end']} | {method} |")
+                val_score = e.get("val_score", "")
+                val_str = f"{val_score:.4f}" if isinstance(val_score, (int, float)) else str(val_score)
+                report_lines.append(f"| {e['fold_idx']} | {e['test_start']} | {e['test_end']} | {method} | {val_str} |")
             report_lines.append("")
             # Average and std of weights
             factor_names = list(cw[0]["weights"].keys()) if cw else []
