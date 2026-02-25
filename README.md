@@ -66,7 +66,7 @@ Yahoo limits: 1m ~7d, 5m ~60d. We auto-cap period; use `--period-override` to by
 ## Walk-Forward
 
 ```bash
-python scripts/walkforward.py --symbol SPY --period 2y --train-days 252 --test-days 63
+python scripts/walkforward_demo.py --symbol SPY --interval 1d --folds 6 --train-days 90 --test-days 30
 ```
 
 ---
