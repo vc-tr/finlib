@@ -25,22 +25,7 @@ from src.backtest.execution import ExecutionConfig, compute_turnover, throttle_p
 from src.strategies import MomentumStrategy
 
 
-# Period caps for minute data (Yahoo: 1m ~7d, 5m ~60d)
-INTERVAL_PERIOD_CAP = {"1m": "7d", "5m": "60d", "1h": "730d"}
-
-
-def _parse_period_days(period: str) -> int:
-    """Convert period string to approximate days (yfinance format)."""
-    period = period.lower().strip()
-    if period.endswith("d"):
-        return int(period[:-1])
-    if period.endswith("wk"):
-        return int(period[:-2]) * 5
-    if period.endswith("mo"):
-        return int(period[:-2]) * 21  # ~21 trading days/month
-    if period.endswith("y"):
-        return int(period[:-1]) * 252
-    return 252  # unknown: assume long
+from src.utils.io import cap_period_for_interval
 
 
 def main() -> None:
@@ -90,13 +75,10 @@ def main() -> None:
 
     args.period_override = args.period_override or args.force
     # Guardrail: cap period for minute bars
-    if args.interval in INTERVAL_PERIOD_CAP and not args.period_override:
-        cap = INTERVAL_PERIOD_CAP[args.interval]
-        cap_days = _parse_period_days(cap)
-        req_days = _parse_period_days(args.period)
-        if req_days > cap_days:
-            print(f"[WARN] {args.interval} data limited to ~{cap}; capping period from {args.period} to {cap}")
-            args.period = cap
+    new_period = cap_period_for_interval(args.interval, args.period, args.period_override)
+    if new_period != args.period:
+        print(f"[WARN] {args.interval} data limited to ~{new_period}; capping period from {args.period} to {new_period}")
+        args.period = new_period
 
     # Intraday (1m) defaults when user did not explicitly set
     if args.interval == "1m":

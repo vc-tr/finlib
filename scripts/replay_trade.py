@@ -27,25 +27,7 @@ from src.paper import PaperBroker, PaperExchange, RiskManager
 from src.paper.orders import Order, OrderSide, OrderType
 from src.paper.strategy_adapter import get_factor_target_weights
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
-
-
-def _fetch_universe(
-    symbols: list[str],
-    interval: str,
-    period: str,
-    fetcher: YahooDataFetcher,
-) -> dict[str, pd.DataFrame]:
-    """Fetch OHLCV for each symbol."""
-    df_by_symbol = {}
-    for sym in symbols:
-        try:
-            df = fetcher.fetch_ohlcv(sym, interval, period=period)
-            df = df.dropna()
-            if len(df) >= 10:
-                df_by_symbol[sym] = df
-        except Exception as e:
-            print(f"  [WARN] Skip {sym}: {e}")
-    return df_by_symbol
+from src.utils.io import fetch_universe_ohlcv
 
 
 def _run_replay(
@@ -325,7 +307,7 @@ def main() -> None:
     symbols = get_universe(args.universe, n=30)
     print(f"[1/3] Fetching {len(symbols)} symbols ({args.period})...")
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
-    df_by_symbol = _fetch_universe(symbols, "1d", args.period, fetcher)
+    df_by_symbol = fetch_universe_ohlcv(symbols, "1d", args.period, fetcher, min_bars=10, warn_fn=print)
     if len(df_by_symbol) < args.top_k + args.bottom_k:
         print(f"[ERROR] Need at least {args.top_k + args.bottom_k} symbols")
         sys.exit(1)

@@ -21,22 +21,7 @@ from src.backtest.execution import ExecutionConfig, compute_turnover, throttle_p
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.strategies import MomentumStrategy
-
-
-INTERVAL_PERIOD_CAP = {"1m": "7d", "5m": "60d", "1h": "730d"}
-
-
-def _parse_period_days(period: str) -> int:
-    period = period.lower().strip()
-    if period.endswith("d"):
-        return int(period[:-1])
-    if period.endswith("wk"):
-        return int(period[:-2]) * 5
-    if period.endswith("mo"):
-        return int(period[:-2]) * 21
-    if period.endswith("y"):
-        return int(period[:-1]) * 252
-    return 252
+from src.utils.io import cap_period_for_interval
 
 
 def main() -> None:
@@ -58,12 +43,10 @@ def main() -> None:
     decision_intervals = [int(x.strip()) for x in args.decision_intervals.split(",")]
 
     # Cap period for 1m unless --force
-    if args.interval == "1m" and not args.force:
-        cap_days = _parse_period_days(INTERVAL_PERIOD_CAP["1m"])
-        req_days = _parse_period_days(args.period)
-        if req_days > cap_days:
-            args.period = INTERVAL_PERIOD_CAP["1m"]
-            print(f"[WARN] 1m capped to {args.period} (use --force to override)")
+    new_period = cap_period_for_interval(args.interval, args.period, period_override=args.force)
+    if new_period != args.period:
+        args.period = new_period
+        print(f"[WARN] 1m capped to {args.period} (use --force to override)")
 
     # Fetch data once
     print(f"Fetching {args.symbol} ({args.period}, {args.interval})...")

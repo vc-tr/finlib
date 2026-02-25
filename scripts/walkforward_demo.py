@@ -24,20 +24,7 @@ from src.pipeline.pipeline import reindex_and_backfill
 from src.strategies import MomentumStrategy
 
 
-INTERVAL_PERIOD_CAP = {"1m": "7d", "5m": "60d", "1h": "730d"}
-
-
-def _parse_period_days(period: str) -> int:
-    period = period.lower().strip()
-    if period.endswith("d"):
-        return int(period[:-1])
-    if period.endswith("wk"):
-        return int(period[:-2]) * 5
-    if period.endswith("mo"):
-        return int(period[:-2]) * 21
-    if period.endswith("y"):
-        return int(period[:-1]) * 252
-    return 252
+from src.utils.io import cap_period_for_interval
 
 
 def _strategy_factory(config: dict):
@@ -124,13 +111,10 @@ def main() -> None:
         args.decision_interval_bars = args.decision_interval_bars or 1
 
     # Period cap for minute
-    if args.interval in INTERVAL_PERIOD_CAP and not args.force:
-        cap = INTERVAL_PERIOD_CAP[args.interval]
-        cap_days = _parse_period_days(cap)
-        req_days = _parse_period_days(args.period)
-        if req_days > cap_days:
-            print(f"[WARN] {args.interval} capped to ~{cap}; use --force to override")
-            args.period = cap
+    new_period = cap_period_for_interval(args.interval, args.period, period_override=args.force)
+    if new_period != args.period:
+        args.period = new_period
+        print(f"[WARN] {args.interval} capped to ~{args.period}; use --force to override")
 
     annualization = (
         252 if args.interval == "1d"

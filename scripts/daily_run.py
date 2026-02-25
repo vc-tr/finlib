@@ -26,6 +26,7 @@ from src.factors.factors import get_prices_wide
 from src.factors.portfolio import rebalance_dates
 from src.paper.strategy_adapter import get_factor_target_weights
 from src.backtest.cost_models import FixedBpsCostModel, LiquidityAwareCostModel
+from src.utils.io import fetch_universe_ohlcv
 from src.utils.jsonable import to_jsonable
 
 STATE_PATH = Path("data/state/current_portfolio.json")
@@ -461,15 +462,7 @@ def main() -> None:
     from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
-    df_by_symbol = {}
-    for sym in symbols:
-        try:
-            df = fetcher.fetch_ohlcv(sym, "1d", period=args.period)
-            df = df.dropna()
-            if len(df) >= 30:
-                df_by_symbol[sym] = df
-        except Exception as e:
-            print(f"  [WARN] Skip {sym}: {e}")
+    df_by_symbol = fetch_universe_ohlcv(symbols, "1d", args.period, fetcher, warn_fn=print)
     if len(df_by_symbol) < args.top_k + args.bottom_k:
         print(f"[ERROR] Need at least {args.top_k + args.bottom_k} symbols")
         sys.exit(1)

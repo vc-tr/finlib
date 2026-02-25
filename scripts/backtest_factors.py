@@ -50,36 +50,7 @@ from src.backtest.cost_models import (
 )
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.reporting.tearsheet import generate_tearsheet
-
-
-def _parse_period_days(period: str) -> int:
-    p = period.lower().strip()
-    if p.endswith("d"):
-        return int(p[:-1])
-    if p.endswith("y"):
-        return int(p[:-1]) * 252
-    if p.endswith("mo"):
-        return int(p[:-2]) * 21
-    return 252
-
-
-def _fetch_universe(
-    symbols: list[str],
-    interval: str,
-    period: str,
-    fetcher: YahooDataFetcher,
-) -> dict[str, pd.DataFrame]:
-    """Fetch OHLCV for each symbol, return df_by_symbol."""
-    df_by_symbol = {}
-    for sym in symbols:
-        try:
-            df = fetcher.fetch_ohlcv(sym, interval, period=period)
-            df = df.dropna()
-            if len(df) >= 30:
-                df_by_symbol[sym] = df
-        except Exception as e:
-            print(f"  [WARN] Skip {sym}: {e}")
-    return df_by_symbol
+from src.utils.io import fetch_universe_ohlcv
 
 
 def _run_factor_backtest(
@@ -477,7 +448,7 @@ def main() -> None:
 
     print(f"[1/4] Fetching {len(symbols)} symbols ({args.period}, {args.interval})...")
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
-    df_by_symbol = _fetch_universe(symbols, args.interval, args.period, fetcher)
+    df_by_symbol = fetch_universe_ohlcv(symbols, args.interval, args.period, fetcher, warn_fn=print)
     if len(df_by_symbol) < args.top_k + args.bottom_k:
         print(f"[ERROR] Need at least {args.top_k + args.bottom_k} symbols, got {len(df_by_symbol)}")
         sys.exit(1)
