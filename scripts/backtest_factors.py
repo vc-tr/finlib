@@ -25,7 +25,6 @@ from src.factors import (
     build_portfolio,
     get_universe,
     UniverseRegistry,
-    UniverseRegistry,
     estimate_beta,
     rolling_portfolio_beta,
     forward_returns,
@@ -196,43 +195,60 @@ def _get_factor_df(
     combo_list: list[str] | None,
     combo_method: str,
     train_slice: slice | None = None,
-) -> tuple[pd.DataFrame, dict | None, dict[str, pd.DataFrame] | None]:
+    top_k: int = 10,
+    bottom_k: int = 10,
+    rebalance: str = "M",
+    cost_bps: float = 4.0,
+) -> tuple[pd.DataFrame, dict | None, dict[str, pd.DataFrame] | None, dict]:
     """
     Get factor DataFrame for backtest. For single factor or combo.
-    Returns (factor_df, combo_weights or None, zscored_dict or None).
+    Returns (factor_df, combo_weights or None, zscored_dict or None, meta).
     """
     if combo_list is None:
         factor_df = compute_factor(df_by_symbol, factor)
-        return factor_df, None, None
+        return factor_df, None, None, {}
 
     factors_dict = compute_factors(df_by_symbol, combo_list)
     prices = get_prices_wide(df_by_symbol)
     fwd_returns = prices.pct_change().shift(-1)
+    fwd_returns_dict = forward_returns(prices, horizons=[1, 5, 21])
 
     if combo_method == "equal":
-        combined, weights, zscored = combine_factors(factors_dict, method="equal")
+        combined, weights, zscored, meta = combine_factors(factors_dict, method="equal")
     else:
         if train_slice is None:
             idx = prices.index
             n = int(len(idx) * 0.7)
             if n < 30:
-                combined, weights, zscored = combine_factors(factors_dict, method="equal")
+                combined, weights, zscored, meta = combine_factors(factors_dict, method="equal")
             else:
                 ts = slice(idx[0], idx[n - 1])
-                combined, weights, zscored = combine_factors(
+                combined, weights, zscored, meta = combine_factors(
                     factors_dict,
                     method=combo_method,
                     train_slice=ts,
                     fwd_returns=fwd_returns,
+                    fwd_returns_dict=fwd_returns_dict,
+                    prices=prices,
+                    top_k=top_k,
+                    bottom_k=bottom_k,
+                    rebalance=rebalance,
+                    cost_bps=cost_bps,
                 )
         else:
-            combined, weights, zscored = combine_factors(
+            combined, weights, zscored, meta = combine_factors(
                 factors_dict,
                 method=combo_method,
                 train_slice=train_slice,
                 fwd_returns=fwd_returns,
+                fwd_returns_dict=fwd_returns_dict,
+                prices=prices,
+                top_k=top_k,
+                bottom_k=bottom_k,
+                rebalance=rebalance,
+                cost_bps=cost_bps,
             )
-    return combined, weights, zscored
+    return combined, weights, zscored, meta
 
 
 def _run_walkforward(
@@ -250,13 +266,17 @@ def _run_walkforward(
     folds: int,
     train_days: int,
     test_days: int,
+    embargo_days: int = 1,
 ) -> dict:
     """Run walk-forward: use history up to test_end, evaluate on test window only."""
     from src.backtest.walkforward import generate_folds
 
     prices_wide = get_prices_wide(df_by_symbol)
     index = prices_wide.index
-    fold_list = generate_folds(index, train_days, test_days, test_days, max_folds=folds)
+    fold_list = generate_folds(
+        index, train_days, test_days, test_days,
+        max_folds=folds, embargo_days=embargo_days,
+    )
 
     per_fold = []
     all_returns = []
@@ -275,18 +295,22 @@ def _run_walkforward(
 
         if factor == "combo" and combo_list:
             train_slice = slice(fold.train_start, fold.train_end)
-            factor_df, combo_weights, _ = _get_factor_df(
-                df_by_hist, factor, combo_list, combo_method, train_slice
+            factor_df, combo_weights, _, meta = _get_factor_df(
+                df_by_hist, factor, combo_list, combo_method, train_slice,
+                top_k=top_k, bottom_k=bottom_k, rebalance=rebalance,
             )
             if combo_weights is not None:
-                combo_weights_per_fold.append({
+                entry = {
                     "fold_idx": fold.fold_idx,
                     "test_start": str(test_start.date()),
                     "test_end": str(test_end.date()),
                     "weights": combo_weights,
-                })
+                }
+                if meta.get("selected_method"):
+                    entry["selected_method"] = meta["selected_method"]
+                combo_weights_per_fold.append(entry)
         else:
-            factor_df, _, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
+            factor_df, _, _, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
         out = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
@@ -350,8 +374,8 @@ def main() -> None:
     parser.add_argument("--combo", default=None,
                         help='Comma-separated factors for combo (e.g. "momentum_12_1,reversal_5d,lowvol_20d")')
     parser.add_argument("--combo-method", default="equal",
-                        choices=["equal", "ic_weighted", "ridge"],
-                        help="Combo weighting: equal, ic_weighted, ridge")
+                        choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto"],
+                        help="Combo weighting: equal, ic_weighted, ridge, sharpe_opt, auto")
     parser.add_argument("--rebalance", default="M", choices=["D", "W", "M"])
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--bottom-k", type=int, default=10)
@@ -365,6 +389,8 @@ def main() -> None:
     parser.add_argument("--folds", type=int, default=6)
     parser.add_argument("--train-days", type=int, default=252)
     parser.add_argument("--test-days", type=int, default=63)
+    parser.add_argument("--embargo-days", type=int, default=1,
+                        help="Days between train end and test start (for IC/fwd returns)")
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--lock-timeout", type=float, default=0)
     parser.add_argument("--beta-neutral", action="store_true", help="Hedge portfolio beta with market (SPY)")
@@ -426,6 +452,7 @@ def main() -> None:
             args.top_k, args.bottom_k, args.rebalance,
             args.fee_bps, args.slippage_bps, args.spread_bps, annualization,
             args.folds, args.train_days, args.test_days,
+            embargo_days=args.embargo_days,
         )
         agg = wf_result["aggregated"]
         print(f"  Mean Sharpe: {agg['mean_sharpe']:.2f}")
@@ -482,7 +509,7 @@ def main() -> None:
             fwd = forward_returns(prices_wide, horizons=ic_horizons)
             agg_ret = wf_result["all_returns"]
             test_dates = agg_ret.index
-            factor_full, _, _ = _get_factor_df(df_by_symbol, args.factor, combo_list, args.combo_method, None)
+            factor_full, _, _, _ = _get_factor_df(df_by_symbol, args.factor, combo_list, args.combo_method, None)
             factor_test = factor_full.reindex(test_dates).dropna(how="all")
             ic_summary_wf = {}
             for h in ic_horizons:
@@ -506,13 +533,58 @@ def main() -> None:
             (output_dir / "combo_weights.json").write_text(
                 json.dumps(wf_result["combo_weights_per_fold"], indent=2), encoding="utf-8"
             )
+            # REPORT.md for combo walkforward
+            cw = wf_result["combo_weights_per_fold"]
+            report_lines = [
+                "# Walk-Forward Combo Report",
+                "",
+                "## Summary",
+                "",
+                f"| Metric | Value |",
+                f"|--------|-------|",
+                f"| Mean Sharpe | {agg['mean_sharpe']:.2f} |",
+                f"| Agg Sharpe | {agg['agg_sharpe']:.2f} |",
+                f"| Agg Total Return | {agg['agg_total_return']:.2%} |",
+                f"| Folds | {agg['n_folds']} |",
+                "",
+                "## Combo Weights by Fold",
+                "",
+                "| Fold | Test Start | Test End | Selected Method |",
+                "|------|------------|----------|-----------------|",
+            ]
+            for e in cw:
+                method = e.get("selected_method", args.combo_method)
+                report_lines.append(f"| {e['fold_idx']} | {e['test_start']} | {e['test_end']} | {method} |")
+            report_lines.append("")
+            # Average and std of weights
+            factor_names = list(cw[0]["weights"].keys()) if cw else []
+            if factor_names:
+                w_df = pd.DataFrame([e["weights"] for e in cw]).fillna(0)
+                avg_w = w_df.mean()
+                std_w = w_df.std()
+                report_lines.extend([
+                    "## Average Weights Across Folds",
+                    "",
+                    "| Factor | Mean | Std |",
+                    "|--------|------|-----|",
+                ])
+                for f in factor_names:
+                    report_lines.append(f"| {f} | {avg_w.get(f, 0):.4f} | {std_w.get(f, 0):.4f} |")
+                report_lines.append("")
+            report_lines.extend([
+                "- [combo_weights.json](combo_weights.json) — full per-fold weights",
+                "",
+            ])
+            (output_dir / "REPORT.md").write_text("\n".join(report_lines), encoding="utf-8")
         (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         print(f"Output: {output_dir}")
         return
 
     print(f"[2/4] Computing factor {args.factor}...")
-    factor_df, combo_weights, zscored = _get_factor_df(
-        df_by_symbol, args.factor, combo_list, args.combo_method, None
+    factor_df, combo_weights, zscored, _ = _get_factor_df(
+        df_by_symbol, args.factor, combo_list, args.combo_method, None,
+        top_k=args.top_k, bottom_k=args.bottom_k, rebalance=args.rebalance,
+        cost_bps=args.fee_bps + args.slippage_bps + args.spread_bps,
     )
     out = _run_factor_backtest(
         df_by_symbol, factor_df, args.top_k, args.bottom_k, args.rebalance,

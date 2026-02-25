@@ -34,6 +34,7 @@ def generate_folds(
     test_days: int,
     step_days: Optional[int] = None,
     max_folds: Optional[int] = None,
+    embargo_days: int = 0,
 ) -> List[WalkForwardFold]:
     """
     Generate rolling walk-forward folds (chronological only).
@@ -44,6 +45,7 @@ def generate_folds(
         test_days: Length of test window in days
         step_days: Step between folds (default: test_days)
         max_folds: Max number of folds to return (None = all)
+        embargo_days: Days between train_end and test_start (avoids lookahead for IC/fwd returns)
 
     Returns:
         List of WalkForwardFold with date boundaries
@@ -52,20 +54,21 @@ def generate_folds(
         step_days = test_days
 
     dates = index.sort_values().unique()
-    if len(dates) < train_days + test_days:
+    if len(dates) < train_days + embargo_days + test_days:
         return []
 
     folds: List[WalkForwardFold] = []
     i = 0
     fold_idx = 0
-    while i + train_days + test_days <= len(dates):
+    while i + train_days + embargo_days + test_days <= len(dates):
         if max_folds is not None and fold_idx >= max_folds:
             break
         train_end_idx = i + train_days
-        test_end_idx = train_end_idx + test_days
+        test_start_idx = train_end_idx + embargo_days
+        test_end_idx = test_start_idx + test_days
         train_start = pd.Timestamp(dates[i])
         train_end = pd.Timestamp(dates[train_end_idx - 1])
-        test_start = pd.Timestamp(dates[train_end_idx])
+        test_start = pd.Timestamp(dates[test_start_idx])
         test_end = pd.Timestamp(dates[test_end_idx - 1])
 
         folds.append(

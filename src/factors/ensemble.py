@@ -4,34 +4,49 @@ Multi-factor ensemble: combine factors into a single composite score.
 
 import numpy as np
 import pandas as pd
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
+
+from .portfolio import build_portfolio, weights_at_rebalance
+from .research import forward_returns
+from .weight_learning import learn_weights_ic, learn_weights_ridge, learn_weights_sharpe
 
 
 def combine_factors(
     factors: dict[str, pd.DataFrame],
-    method: Literal["equal", "ic_weighted", "ridge"] = "equal",
+    method: Literal["equal", "ic_weighted", "ridge", "sharpe_opt", "auto"] = "equal",
     train_slice: Optional[slice] = None,
     fwd_returns: Optional[pd.DataFrame] = None,
+    fwd_returns_dict: Optional[Dict[int, pd.DataFrame]] = None,
+    prices: Optional[pd.DataFrame] = None,
+    top_k: int = 10,
+    bottom_k: int = 10,
+    rebalance: str = "M",
     ridge_alpha: float = 1.0,
-) -> tuple[pd.DataFrame, dict, dict[str, pd.DataFrame]]:
+    sharpe_l2: float = 0.5,
+    cost_bps: float = 4.0,
+) -> tuple[pd.DataFrame, dict, dict[str, pd.DataFrame], dict[str, Any]]:
     """
     Combine multiple factors into a single composite factor.
 
     Args:
         factors: dict[factor_name, DataFrame] with index=date, columns=symbol
-        method: "equal" | "ic_weighted" | "ridge"
-        train_slice: For ic_weighted/ridge, slice of index to use for training (e.g. slice(None, "2022-12-31"))
-        fwd_returns: For ic_weighted/ridge, forward returns (date x symbol). Required for ic_weighted and ridge.
-        ridge_alpha: L2 regularization strength for ridge (default 1.0)
+        method: "equal" | "ic_weighted" | "ridge" | "sharpe_opt" | "auto"
+        train_slice: For train-based methods, slice of index for training
+        fwd_returns: Forward returns h=1 (date x symbol). For ridge.
+        fwd_returns_dict: {horizon: DataFrame} for ic_weighted (default from prices if available)
+        prices: For sharpe_opt/auto, prices (date x symbol)
+        top_k, bottom_k, rebalance: For sharpe_opt/auto portfolio construction
+        ridge_alpha: L2 for ridge (default 1.0)
+        sharpe_l2: L2 for sharpe_opt (default 0.5)
+        cost_bps: Cost in bps for auto train Sharpe (default 4.0)
 
     Returns:
-        (combined_factor_df, weights_dict, zscored_dict)
-        - combined_factor_df: index=date, columns=symbol, values=composite factor
-        - weights_dict: {"factor_name": weight, ...} for reporting
-        - zscored_dict: {"factor_name": zscore_df} for attribution (date x symbol)
+        (combined_factor_df, weights_dict, zscored_dict, meta)
+        - meta: {"selected_method": str} for auto; else {}
     """
+    meta: dict[str, Any] = {}
     if not factors:
-        return pd.DataFrame(), {}, {}
+        return pd.DataFrame(), {}, {}, meta
 
     # Align all factors to common index/columns
     names = list(factors.keys())
@@ -55,61 +70,34 @@ def combine_factors(
             zscored[n] = z
         combined = sum(zscored.values()) / len(zscored)
         weights = {n: 1.0 / len(names) for n in names}
-        return combined, weights, zscored
+        return combined, weights, zscored, meta
 
     if method == "ic_weighted":
-        if train_slice is None or fwd_returns is None:
-            raise ValueError("ic_weighted requires train_slice and fwd_returns")
-        # Compute mean IC per factor on train_slice only (no lookahead)
+        if train_slice is None:
+            raise ValueError("ic_weighted requires train_slice")
         train_idx = _slice_to_index(common_idx, train_slice)
         if len(train_idx) < 10:
-            # Fallback to equal
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}, zscored
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
 
-        # Compute IC per factor: per-date cross-sectional corr, then nan-safe mean
-        ics = []
-        for n, df in aligned.items():
-            fac = df.loc[train_idx].reindex(columns=fwd_returns.columns)
-            fwd = fwd_returns.loc[train_idx].reindex(index=fac.index, columns=fac.columns)
-            ic_per_date = []
-            for dt in fac.index:
-                if dt not in fwd.index:
-                    continue
-                x = fac.loc[dt].dropna()
-                y = fwd.loc[dt].reindex(x.index).dropna()
-                valid = x.index.intersection(y.index)
-                if len(valid) < 2:
-                    ic_per_date.append(0.0)
-                    continue
-                xv = x.loc[valid].values
-                yv = y.loc[valid].values
-                # Drop rows with NaN in either series
-                mask = np.isfinite(xv) & np.isfinite(yv)
-                if mask.sum() < 2:
-                    ic_per_date.append(0.0)
-                    continue
-                xv, yv = xv[mask], yv[mask]
-                if np.std(xv) < 1e-12 or np.std(yv) < 1e-12:
-                    ic_per_date.append(0.0)
-                    continue
-                ic = np.corrcoef(xv, yv)[0, 1]
-                ic_per_date.append(ic if np.isfinite(ic) else 0.0)
-            mean_ic = float(np.nanmean(ic_per_date)) if ic_per_date else 0.0
-            ics.append(mean_ic if np.isfinite(mean_ic) else 0.0)
+        # Build fwd_returns_dict for learn_weights_ic (IC IR by horizon)
+        if fwd_returns_dict is None and prices is not None:
+            fwd_returns_dict = forward_returns(prices, horizons=[1, 5, 21])
+        elif fwd_returns_dict is None and fwd_returns is not None:
+            fwd_returns_dict = {1: fwd_returns}
 
-        # Weight by |IC| (or IC if positive), avoid negative/zero
-        ics_arr = np.array(ics)
-        ics_arr = np.where(np.isfinite(ics_arr) & (ics_arr > 0), ics_arr, 0.0)
-        if ics_arr.sum() < 1e-10 or not np.any(np.isfinite(ics_arr)):
-            weights = {n: 1.0 / len(names) for n in names}
-        else:
-            weights = {n: float(w) for n, w in zip(names, ics_arr / ics_arr.sum())}
+        if not fwd_returns_dict:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
 
+        fac_train = {n: df.loc[train_idx] for n, df in aligned.items()}
+        fwd_train = {h: fwd.reindex(index=train_idx) for h, fwd in fwd_returns_dict.items()}
+        weights = learn_weights_ic(fac_train, fwd_train, horizons=[1, 5, 21])
         zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
         combined = sum(weights[n] * zscored[n] for n in names)
-        return combined, weights, zscored
+        return combined, weights, zscored, meta
 
     if method == "ridge":
         if train_slice is None or fwd_returns is None:
@@ -118,9 +106,8 @@ def combine_factors(
         if len(train_idx) < 30:
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}, zscored
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
 
-        # Stack: rows = (date, symbol), cols = factor values, y = fwd return
         X_list = []
         y_list = []
         for dt in train_idx:
@@ -143,28 +130,177 @@ def combine_factors(
         if len(X) < 20:
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}, zscored
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
 
-        # Ridge: (X'X + alpha*I)^{-1} X' y
-        XtX = X.T @ X + ridge_alpha * np.eye(len(names))
-        Xty = X.T @ y
-        try:
-            coef = np.linalg.solve(XtX, Xty)
-        except np.linalg.LinAlgError:
-            coef = np.ones(len(names)) / len(names)
-        # Normalize to sum to 1 (for interpretability)
-        coef = np.maximum(coef, 0)
-        if coef.sum() < 1e-10:
-            coef = np.ones(len(names)) / len(names)
-        else:
-            coef = coef / coef.sum()
+        coef = learn_weights_ridge(X, y, l2=ridge_alpha)
         weights = {n: float(c) for n, c in zip(names, coef)}
-
         zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
         combined = sum(weights[n] * zscored[n] for n in names)
-        return combined, weights, zscored
+        return combined, weights, zscored, meta
+
+    if method == "sharpe_opt":
+        if train_slice is None or prices is None:
+            raise ValueError("sharpe_opt requires train_slice and prices")
+        train_idx = _slice_to_index(common_idx, train_slice)
+        if len(train_idx) < 30:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
+
+        returns_by_factor = _train_portfolio_returns_per_factor(
+            aligned, names, train_idx, prices, top_k, bottom_k, rebalance,
+        )
+        if not returns_by_factor:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
+        weights = learn_weights_sharpe(returns_by_factor, l2=sharpe_l2)
+        zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+        combined = sum(weights[n] * zscored[n] for n in names)
+        return combined, weights, zscored, meta
+
+    if method == "auto":
+        if train_slice is None or prices is None:
+            raise ValueError("auto requires train_slice and prices")
+        train_idx = _slice_to_index(common_idx, train_slice)
+        if len(train_idx) < 30:
+            zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+            combined = sum(zscored.values()) / len(zscored)
+            return combined, {n: 1.0 / len(names) for n in names}, zscored, meta
+
+        if fwd_returns_dict is None:
+            fwd_returns_dict = forward_returns(prices, horizons=[1, 5, 21])
+        if fwd_returns is None:
+            fwd_returns = fwd_returns_dict.get(1, prices.pct_change().shift(-1))
+
+        candidates = ["equal", "ic_weighted", "ridge", "sharpe_opt"]
+        best_sharpe = -np.inf
+        best_weights = {n: 1.0 / len(names) for n in names}
+        best_method = "equal"
+
+        for cand in candidates:
+            try:
+                if cand == "equal":
+                    c, w, z = _combine_one(aligned, names, "equal", None)
+                elif cand == "ic_weighted":
+                    c, w, z = _combine_one(
+                        aligned, names, "ic_weighted", train_idx,
+                        fwd_returns_dict=fwd_returns_dict,
+                    )
+                elif cand == "ridge":
+                    c, w, z = _combine_one(
+                        aligned, names, "ridge", train_idx,
+                        fwd_returns=fwd_returns,
+                        ridge_alpha=ridge_alpha,
+                    )
+                else:
+                    c, w, z = _combine_one(
+                        aligned, names, "sharpe_opt", train_idx,
+                        prices=prices, top_k=top_k, bottom_k=bottom_k,
+                        rebalance=rebalance, sharpe_l2=sharpe_l2,
+                    )
+                train_ret = _train_portfolio_returns(
+                    c, train_idx, prices, top_k, bottom_k, rebalance, cost_bps,
+                )
+                sharpe = _sharpe(train_ret)
+                if sharpe > best_sharpe:
+                    best_sharpe = sharpe
+                    best_weights = w
+                    best_method = cand
+            except Exception:
+                continue
+
+        meta["selected_method"] = best_method
+        zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
+        combined = sum(best_weights[n] * zscored[n] for n in names)
+        return combined, best_weights, zscored, meta
 
     raise ValueError(f"Unknown method: {method}")
+
+
+def _train_portfolio_returns_per_factor(
+    aligned: dict[str, pd.DataFrame],
+    names: list[str],
+    train_idx: pd.Index,
+    prices: pd.DataFrame,
+    top_k: int,
+    bottom_k: int,
+    rebalance: str,
+) -> dict[str, np.ndarray]:
+    """Compute standalone portfolio return series per factor on train window."""
+    from .portfolio import apply_rebalance_costs
+
+    out = {}
+    prices_train = prices.reindex(index=train_idx).ffill().bfill()
+    common_idx = None
+    for n in names:
+        fac = aligned[n].loc[train_idx]
+        w = weights_at_rebalance(fac, rebalance=rebalance, top_k=top_k, bottom_k=bottom_k)
+        w = w.reindex(prices_train.index).ffill().fillna(0)
+        ret = prices_train.pct_change()
+        w_held = w.shift(1).fillna(0)
+        syms = w_held.columns.intersection(ret.columns)
+        w_held = w_held.reindex(columns=syms).fillna(0)
+        ret = ret.reindex(columns=syms).fillna(0)
+        port_ret = (w_held * ret).sum(axis=1)
+        port_ret = apply_rebalance_costs(port_ret, w, cost_bps=4.0)
+        out[n] = port_ret
+        if common_idx is None:
+            common_idx = port_ret.dropna().index
+        else:
+            common_idx = common_idx.intersection(port_ret.dropna().index)
+    if common_idx is None or len(common_idx) < 5:
+        return {}
+    return {n: out[n].reindex(common_idx).fillna(0).values for n in names}
+
+
+def _train_portfolio_returns(
+    combined: pd.DataFrame,
+    train_idx: pd.Index,
+    prices: pd.DataFrame,
+    top_k: int,
+    bottom_k: int,
+    rebalance: str,
+    cost_bps: float,
+) -> pd.Series:
+    """Portfolio returns on train window for combined factor, net of costs."""
+    from .portfolio import apply_rebalance_costs
+
+    fac = combined.loc[train_idx]
+    w = weights_at_rebalance(fac, rebalance=rebalance, top_k=top_k, bottom_k=bottom_k)
+    prices_train = prices.reindex(index=train_idx).ffill().bfill()
+    w = w.reindex(prices_train.index).ffill().fillna(0)
+    ret = prices_train.pct_change()
+    w_held = w.shift(1).fillna(0)
+    common = w_held.index.intersection(ret.index).intersection(prices_train.columns)
+    w_held = w_held.reindex(columns=common).fillna(0)
+    ret = ret.reindex(columns=common).fillna(0)
+    port_ret = (w_held * ret).sum(axis=1)
+    return apply_rebalance_costs(port_ret, w, cost_bps=cost_bps)
+
+
+def _sharpe(returns: pd.Series, ann: float = 252.0) -> float:
+    """Annualized Sharpe. Returns -inf if empty or zero vol."""
+    r = returns.dropna()
+    if len(r) < 5:
+        return -np.inf
+    vol = r.std()
+    if vol < 1e-12:
+        return -np.inf
+    return float(r.mean() / vol * np.sqrt(ann))
+
+
+def _combine_one(
+    aligned: dict[str, pd.DataFrame],
+    names: list[str],
+    method: str,
+    train_idx: Optional[pd.Index],
+    **kwargs: Any,
+) -> tuple[pd.DataFrame, dict, dict]:
+    """Call combine_factors for one method, return (combined, weights, zscored) without meta."""
+    ts = slice(train_idx[0], train_idx[-1]) if train_idx is not None and len(train_idx) > 0 else None
+    c, w, z, _ = combine_factors(aligned, method=method, train_slice=ts, **kwargs)
+    return c, w, z
 
 
 def _zscore_cs(df: pd.DataFrame) -> pd.DataFrame:
