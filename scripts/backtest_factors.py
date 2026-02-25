@@ -378,9 +378,10 @@ def main() -> None:
                 agg_ret = wf_result["all_returns"]
                 beta_p = rolling_portfolio_beta(agg_ret, market_ret, window=args.beta_window)
                 beta_p.to_csv(output_dir / "beta_series.csv", header=["beta_p"])
-                agg["beta_mean"] = float(beta_p.dropna().mean())
-                agg["beta_std"] = float(beta_p.dropna().std()) if beta_p.dropna().size > 0 else 0.0
-                agg["beta_max_abs"] = float(beta_p.abs().max()) if beta_p.size > 0 else 0.0
+                valid = beta_p.dropna()
+                agg["beta_mean"] = float(valid.mean()) if len(valid) > 0 else 0.0
+                agg["beta_std"] = float(valid.std()) if len(valid) > 1 else 0.0
+                agg["beta_max_abs"] = float(beta_p.abs().max()) if len(beta_p) > 0 else 0.0
 
         summary = {"walkforward": True, "aggregated": agg, "per_fold": wf_result["per_fold"]}
         if "combo_weights_per_fold" in wf_result:

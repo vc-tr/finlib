@@ -1,5 +1,5 @@
 """
-Factor research metrics: forward returns, information coefficient, IC summary.
+Factor research metrics: forward returns, IC/IR, decay.
 """
 
 from typing import Dict, List, Literal, Optional
@@ -33,7 +33,7 @@ def forward_returns(
     return out
 
 
-def information_coefficient(
+def cross_sectional_ic(
     factor_df: pd.DataFrame,
     fwd_ret_df: pd.DataFrame,
     method: Literal["spearman", "pearson"] = "spearman",
@@ -42,6 +42,11 @@ def information_coefficient(
     Compute cross-sectional information coefficient over time.
 
     At each date, correlation between factor values and forward returns across symbols.
+
+    Robustness:
+    - Drop NaNs in either series
+    - Require >= 5 symbols that date
+    - If variance is 0 (constant factor or returns), return NaN for that date
 
     Args:
         factor_df: DataFrame (date x symbol) of factor values
@@ -61,23 +66,45 @@ def information_coefficient(
         x = f.loc[t].dropna()
         y = r.loc[t].reindex(x.index).dropna()
         valid = x.index.intersection(y.index)
-        if len(valid) < 3:
+        if len(valid) < 5:
             ic_list.append((t, np.nan))
             continue
-        xv = x.loc[valid]
-        yv = y.loc[valid]
+        xv = x.loc[valid].values.astype(float)
+        yv = y.loc[valid].values.astype(float)
+        mask = np.isfinite(xv) & np.isfinite(yv)
+        if mask.sum() < 5:
+            ic_list.append((t, np.nan))
+            continue
+        xv, yv = xv[mask], yv[mask]
+        if np.std(xv) < 1e-12 or np.std(yv) < 1e-12:
+            ic_list.append((t, np.nan))
+            continue
         if method == "spearman":
-            ic = xv.rank().corr(yv.rank())
+            ic = np.corrcoef(
+                pd.Series(xv).rank().values,
+                pd.Series(yv).rank().values,
+            )[0, 1]
         else:
-            ic = xv.corr(yv)
-        ic_list.append((t, ic))
+            ic = np.corrcoef(xv, yv)[0, 1]
+        ic_list.append((t, ic if np.isfinite(ic) else np.nan))
 
     return pd.Series(dict(ic_list)).sort_index()
+
+
+def information_coefficient(
+    factor_df: pd.DataFrame,
+    fwd_ret_df: pd.DataFrame,
+    method: Literal["spearman", "pearson"] = "spearman",
+) -> pd.Series:
+    """Alias for cross_sectional_ic (backward compatibility)."""
+    return cross_sectional_ic(factor_df, fwd_ret_df, method=method)
 
 
 def summarize_ic(ic_series: pd.Series) -> Dict[str, float]:
     """
     Summarize IC time series.
+
+    Handles n=0 gracefully (all NaN or empty).
 
     Returns:
         dict with mean_ic, std_ic, ir (information ratio), t_stat, n
@@ -92,8 +119,8 @@ def summarize_ic(ic_series: pd.Series) -> Dict[str, float]:
         ir = mean_ic / std_ic
         t_stat = mean_ic / (std_ic / np.sqrt(n))
     else:
-        ir = np.nan if mean_ic != 0 else 0.0
-        t_stat = np.inf if mean_ic != 0 else 0.0
+        ir = 0.0 if mean_ic == 0 else np.nan
+        t_stat = 0.0 if mean_ic == 0 else np.nan  # avoid inf for robustness
     return {
         "mean_ic": mean_ic,
         "std_ic": std_ic,
