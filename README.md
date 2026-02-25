@@ -71,6 +71,24 @@ python scripts/walkforward_demo.py --symbol SPY --interval 1d --folds 6 --train-
 
 ---
 
+## Paper Trading Replay
+
+Event-driven paper trading replay on historical data (no broker accounts):
+
+```bash
+python scripts/replay_trade.py --strategy factors --universe liquid_etfs --factor momentum_12_1 --rebalance M --start 2024-01-01 --end 2025-12-31
+```
+
+Combo factors with auto_robust:
+
+```bash
+python scripts/replay_trade.py --strategy factors --factor combo --combo "momentum_12_1,reversal_5d,lowvol_20d" --combo-method auto_robust --rebalance M
+```
+
+Outputs: `orders.csv`, `blotter.csv`, `equity_curve.csv`, `positions_snapshot.csv`, `replay_report.md`
+
+---
+
 ## One Command Research Bundle
 
 Generate a recruiter-friendly packet (daily demo, walk-forward, intraday demo, sweep) in one run:
@@ -88,10 +106,11 @@ Output: `output/runs/<timestamp>_bundle_SPY/` with subfolders `daily_demo/`, `wa
 ```
 quant-forecast/
 ├── src/backtest/     # Engine, execution, walk-forward
+├── src/paper/        # Paper trading replay (orders, broker, exchange, risk)
 ├── src/strategies/   # Momentum, mean reversion, papers
 ├── src/pipeline/     # Data fetchers, features
 ├── src/reporting/    # Tear-sheet generation
-├── scripts/          # run_demo.py, walkforward_demo.py, make_research_bundle.py
+├── scripts/          # run_demo.py, replay_trade.py, backtest_factors.py
 ├── configs/          # JSON configs
 ├── output/           # Tear-sheet outputs
 └── tests/
