@@ -1,0 +1,107 @@
+main:
+  run_tensorboard.py
+  scripts/backtest_baselines.py
+  scripts/backtest_factors.py
+  scripts/backtest_pairs.py
+  scripts/backtest_papers.py
+  scripts/backtest_portfolio.py
+  scripts/backtest_strategies.py
+  scripts/daily_run.py
+  scripts/make_research_bundle.py
+  scripts/monitor_runs.py
+  scripts/replay_trade.py
+  scripts/run_demo.py
+  scripts/run_options_demo.py
+  scripts/sweep_momentum.py
+  scripts/walkforward_demo.py
+  src/factors/runner.py
+
+generate_signals:
+  src/strategies/daytrader/ema_stochastic.py
+  src/strategies/daytrader/opening_range_breakout.py
+  src/strategies/daytrader/scalping.py
+  src/strategies/influencer/sentiment.py
+  src/strategies/influencer/volume_sentiment.py
+  src/strategies/institutional/atr_breakout.py
+  src/strategies/institutional/kalman_pairs.py
+  src/strategies/institutional/vwap_reversion.py
+  src/strategies/papers/de_bondt_thaler.py
+  src/strategies/papers/gatev_pairs.py
+  src/strategies/papers/jegadeesh_titman.py
+  src/strategies/papers/moskowitz_tsmom.py
+  src/strategies/renaissance/signal_ensemble.py
+  src/strategies/stats/mean_reversion.py
+  src/strategies/stats/momentum.py
+  src/strategies/stats/pairs_trading.py
+
+backtest_returns:
+  src/strategies/daytrader/ema_stochastic.py
+  src/strategies/daytrader/opening_range_breakout.py
+  src/strategies/daytrader/scalping.py
+  src/strategies/influencer/sentiment.py
+  src/strategies/influencer/volume_sentiment.py
+  src/strategies/institutional/atr_breakout.py
+  src/strategies/institutional/kalman_pairs.py
+  src/strategies/institutional/vwap_reversion.py
+  src/strategies/papers/de_bondt_thaler.py
+  src/strategies/papers/gatev_pairs.py
+  src/strategies/papers/jegadeesh_titman.py
+  src/strategies/papers/moskowitz_tsmom.py
+  src/strategies/renaissance/signal_ensemble.py
+  src/strategies/stats/mean_reversion.py
+  src/strategies/stats/momentum.py
+
+forward:
+  src/models/bilstm.py
+  src/models/gru.py
+  src/models/lstm.py
+  src/models/tcn.py
+  src/models/tcn.py
+  src/models/tcn.py
+  src/models/transformer.py
+  src/models/transformer.py
+
+fetch_ohlcv:
+  src/pipeline/data_fetcher.py
+  src/pipeline/data_fetcher_alpha.py
+  src/pipeline/data_fetcher_yahoo.py
+  src/utils/io.py
+
+estimate_costs:
+  src/backtest/cost_models.py
+  src/backtest/cost_models.py
+  src/backtest/cost_models.py
+
+simulate:
+  src/strategies/stochastic/brownian.py
+  src/strategies/stochastic/brownian.py
+  src/strategies/stochastic/ornstein_uhlenbeck.py
+
+fake_download:
+  tests/test_data_fetcher.py
+  tests/test_multi_fetch.py
+  tests/test_multi_fetch.py
+
+run:
+  src/backtest/engine.py
+  src/portfolio/manager.py
+
+submit_order:
+  src/paper/broker.py
+  src/paper/exchange.py
+
+price:
+  src/strategies/options/black_scholes.py
+  src/strategies/options/monte_carlo.py
+
+expected_value:
+  src/strategies/stochastic/brownian.py
+  src/strategies/stochastic/ornstein_uhlenbeck.py
+
+variance:
+  src/strategies/stochastic/brownian.py
+  src/strategies/stochastic/ornstein_uhlenbeck.py
+
+fake_fetch:
+  tests/test_backtest_reliability.py
+  tests/test_research_bundle.py

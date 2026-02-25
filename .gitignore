@@ -36,6 +36,7 @@ figures/
 data/*.csv
 data/cache/
 data/state/
+*.parquet
 output/
 
 # Database files
