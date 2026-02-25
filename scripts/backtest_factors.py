@@ -163,43 +163,43 @@ def _get_factor_df(
     combo_list: list[str] | None,
     combo_method: str,
     train_slice: slice | None = None,
-) -> tuple[pd.DataFrame, dict | None]:
+) -> tuple[pd.DataFrame, dict | None, dict[str, pd.DataFrame] | None]:
     """
     Get factor DataFrame for backtest. For single factor or combo.
-    Returns (factor_df, combo_weights or None).
+    Returns (factor_df, combo_weights or None, zscored_dict or None).
     """
     if combo_list is None:
         factor_df = compute_factor(df_by_symbol, factor)
-        return factor_df, None
+        return factor_df, None, None
 
     factors_dict = compute_factors(df_by_symbol, combo_list)
     prices = get_prices_wide(df_by_symbol)
     fwd_returns = prices.pct_change().shift(-1)
 
     if combo_method == "equal":
-        combined, weights = combine_factors(factors_dict, method="equal")
+        combined, weights, zscored = combine_factors(factors_dict, method="equal")
     else:
         if train_slice is None:
             idx = prices.index
             n = int(len(idx) * 0.7)
             if n < 30:
-                combined, weights = combine_factors(factors_dict, method="equal")
+                combined, weights, zscored = combine_factors(factors_dict, method="equal")
             else:
                 ts = slice(idx[0], idx[n - 1])
-                combined, weights = combine_factors(
+                combined, weights, zscored = combine_factors(
                     factors_dict,
                     method=combo_method,
                     train_slice=ts,
                     fwd_returns=fwd_returns,
                 )
         else:
-            combined, weights = combine_factors(
+            combined, weights, zscored = combine_factors(
                 factors_dict,
                 method=combo_method,
                 train_slice=train_slice,
                 fwd_returns=fwd_returns,
             )
-    return combined, weights
+    return combined, weights, zscored
 
 
 def _run_walkforward(
@@ -242,7 +242,7 @@ def _run_walkforward(
 
         if factor == "combo" and combo_list:
             train_slice = slice(fold.train_start, fold.train_end)
-            factor_df, combo_weights = _get_factor_df(
+            factor_df, combo_weights, _ = _get_factor_df(
                 df_by_hist, factor, combo_list, combo_method, train_slice
             )
             if combo_weights is not None:
@@ -253,7 +253,7 @@ def _run_walkforward(
                     "weights": combo_weights,
                 })
         else:
-            factor_df, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
+            factor_df, _, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
         out = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
@@ -426,7 +426,7 @@ def main() -> None:
             fwd = forward_returns(prices_wide, horizons=ic_horizons)
             agg_ret = wf_result["all_returns"]
             test_dates = agg_ret.index
-            factor_full, _ = _get_factor_df(df_by_symbol, args.factor, combo_list, args.combo_method, None)
+            factor_full, _, _ = _get_factor_df(df_by_symbol, args.factor, combo_list, args.combo_method, None)
             factor_test = factor_full.reindex(test_dates).dropna(how="all")
             ic_summary_wf = {}
             for h in ic_horizons:
@@ -455,7 +455,7 @@ def main() -> None:
         return
 
     print(f"[2/4] Computing factor {args.factor}...")
-    factor_df, combo_weights = _get_factor_df(
+    factor_df, combo_weights, zscored = _get_factor_df(
         df_by_symbol, args.factor, combo_list, args.combo_method, None
     )
     out = _run_factor_backtest(
@@ -477,9 +477,12 @@ def main() -> None:
     hedge_weight = out[7] if len(out) > 7 else None
     n_rebalance = out[8] if len(out) > 8 else 0
 
-    # Turnover occurs on execution days (rebalance date + execution_delay)
-    turnover_on_exec = turnover[turnover > 1e-10]
-    mean_turnover_on_exec = turnover_on_exec.mean() * annualization if len(turnover_on_exec) > 0 else 0.0
+    # Turnover at rebalance/execution timestamps only
+    turnover_at_rb = turnover[turnover > 1e-10]
+    avg_turnover_per_rebalance = turnover_at_rb.mean() if len(turnover_at_rb) > 0 else 0.0
+    n_years = max(1e-6, len(result.returns) / annualization)
+    rebalances_per_year = n_rebalance / n_years
+    annual_turnover = avg_turnover_per_rebalance * rebalances_per_year
 
     print("[3/4] Results:")
     print("-" * 50)
@@ -488,13 +491,49 @@ def main() -> None:
     print(f"  Max DD:      {result.max_drawdown:.2%}")
     print(f"  Trades:      {result.n_trades}")
     print(f"  Rebalances:  {n_rebalance}")
-    print(f"  Turnover:    {turnover.mean() * annualization:.2f} (ann.)")
-    print(f"  Turnover (on exec days):      {mean_turnover_on_exec:.2f} (ann.)")
+    print(f"  Avg turnover per rebalance: {avg_turnover_per_rebalance:.2f}")
+    print(f"  Annual turnover: {annual_turnover:.2f}")
     print("-" * 50)
 
     if combo_weights is not None:
         (output_dir / "combo_weights.json").write_text(
             json.dumps(combo_weights, indent=2), encoding="utf-8"
+        )
+
+    # Factor attribution (combo only): exposures + corr with returns
+    factor_attribution = None
+    if combo_weights is not None and zscored is not None:
+        common_idx = w_held.index.intersection(result.returns.index)
+        common_cols = w_held.columns
+        w_aligned = w_held.reindex(index=common_idx, columns=common_cols).fillna(0)
+        port_ret = result.returns.reindex(common_idx).fillna(0)
+        exposures = {}
+        for fname, zdf in zscored.items():
+            cols_f = common_cols.intersection(zdf.columns)
+            idx_f = common_idx.intersection(zdf.index)
+            w_f = w_aligned.reindex(index=idx_f, columns=cols_f).fillna(0)
+            z_f = zdf.reindex(index=idx_f, columns=cols_f).fillna(0)
+            exp = (w_f * z_f).sum(axis=1)
+            exposures[fname] = exp
+        exp_df = pd.DataFrame(exposures)
+        exp_df.to_csv(output_dir / "factor_exposures.csv")
+        att = {}
+        for fname in exp_df.columns:
+            ex = exp_df[fname].dropna()
+            ex = ex.reindex(port_ret.index).dropna()
+            ret_aligned = port_ret.reindex(ex.index).fillna(0)
+            if len(ex) >= 5 and ex.std() > 1e-12:
+                corr = ex.corr(ret_aligned)
+            else:
+                corr = float("nan")
+            att[fname] = {
+                "mean_exposure": float(ex.mean()),
+                "std_exposure": float(ex.std()) if len(ex) > 1 else 0.0,
+                "corr_with_returns": float(corr) if pd.notna(corr) else None,
+            }
+        factor_attribution = att
+        (output_dir / "factor_attribution.json").write_text(
+            json.dumps(factor_attribution, indent=2), encoding="utf-8"
         )
 
     # IC research metrics (when --report-ic)
@@ -533,11 +572,16 @@ def main() -> None:
 
     print("[4/4] Writing tear-sheet...")
     prices_1d = prices.mean(axis=1)
+    cmd = "python scripts/backtest_factors.py " + " ".join(sys.argv[1:])
     config = {
         "factor": args.factor,
+        "universe": args.universe,
+        "period": args.period,
+        "interval": args.interval,
         "rebalance": args.rebalance,
         "top_k": args.top_k,
         "bottom_k": args.bottom_k,
+        "cmd": cmd,
     }
     if combo_weights is not None:
         config["combo_weights"] = combo_weights
@@ -552,6 +596,8 @@ def main() -> None:
         prices_wide=prices,
         ic_summary=ic_summary,
         ic_preview=ic_preview,
+        combo_weights=combo_weights,
+        factor_attribution=factor_attribution,
         portfolio_beta_before=beta_before,
         portfolio_beta_after=beta_after,
         hedge_weight=hedge_weight,
@@ -560,6 +606,9 @@ def main() -> None:
     )
     summary = {
         "factor": args.factor,
+        "universe": args.universe,
+        "period": args.period,
+        "interval": args.interval,
         "rebalance": args.rebalance,
         "top_k": args.top_k,
         "bottom_k": args.bottom_k,
@@ -567,6 +616,10 @@ def main() -> None:
         "total_return": result.total_return,
         "max_drawdown": result.max_drawdown,
         "n_trades": result.n_trades,
+        "n_rebalance": n_rebalance,
+        "avg_turnover_per_rebalance": avg_turnover_per_rebalance,
+        "annual_turnover": annual_turnover,
+        "cmd": cmd,
     }
     if combo_weights is not None:
         summary["combo_weights"] = combo_weights

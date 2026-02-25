@@ -24,6 +24,70 @@ def _ensure_dir(path: Path) -> Path:
     return path
 
 
+def _generate_index_md(out: Path, config: Dict[str, Any]) -> None:
+    """Generate INDEX.md landing page with quick links and reproduce command."""
+    parts = []
+    factor = config.get("factor") or config.get("symbol") or "backtest"
+    universe = config.get("universe", "")
+    period = config.get("period", "")
+    interval = config.get("interval", "")
+    title_parts = [str(factor)]
+    if universe:
+        title_parts.append(universe)
+    if period:
+        title_parts.append(period)
+    if interval:
+        title_parts.append(interval)
+    title = " / ".join(title_parts)
+
+    lines = [
+        f"# {title}",
+        "",
+        "## Quick links",
+        "",
+        "- [REPORT.md](REPORT.md)",
+        "- [tearsheet.html](tearsheet.html)",
+        "",
+        "## Research",
+        "",
+    ]
+    # IC research
+    if (out / "ic_summary.json").exists():
+        lines.append("- [ic_summary.json](ic_summary.json)")
+        for h in [1, 5, 21]:
+            if (out / f"ic_h{h}.csv").exists():
+                lines.append(f"- [ic_h{h}.csv](ic_h{h}.csv)")
+        lines.append("")
+    # Beta
+    if (out / "beta_series.csv").exists():
+        lines.append("- [beta_series.csv](beta_series.csv)")
+    if (out / "rolling_beta.png").exists():
+        lines.append("- [rolling_beta.png](rolling_beta.png)")
+    if (out / "beta_series.csv").exists() or (out / "rolling_beta.png").exists():
+        lines.append("")
+    # Holdings
+    if (out / "holdings_by_date.csv").exists():
+        lines.append("- [holdings_by_date.csv](holdings_by_date.csv)")
+        lines.append("")
+    # Combo weights
+    if (out / "combo_weights.json").exists():
+        lines.append("- [combo_weights.json](combo_weights.json)")
+        lines.append("")
+
+    cmd = config.get("cmd")
+    if cmd:
+        lines.extend([
+            "## How to reproduce",
+            "",
+            "```bash",
+            cmd,
+            "```",
+            "",
+        ])
+
+    (out / "INDEX.md").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
 def _summary_metrics(result: BacktestResult, annualization: float = 252) -> Dict[str, Any]:
     """Compute summary metrics (numeric + formatted strings)."""
     ret = result.returns
@@ -77,6 +141,8 @@ def generate_tearsheet(
     prices_wide: Optional[pd.DataFrame] = None,
     ic_summary: Optional[Dict[str, Dict[str, float]]] = None,
     ic_preview: Optional[Dict[str, list]] = None,
+    combo_weights: Optional[Dict[str, float]] = None,
+    factor_attribution: Optional[Dict[str, Dict[str, float]]] = None,
     portfolio_beta_before: Optional[pd.Series] = None,
     portfolio_beta_after: Optional[pd.Series] = None,
     hedge_weight: Optional[pd.Series] = None,
@@ -297,17 +363,37 @@ def generate_tearsheet(
             report_lines.append(f"| {k} | {v} |")
 
     cfg = config or {}
-    if cfg.get("combo_weights"):
-        report_lines.extend([
-            "",
-            "## Combo Weights",
-            "",
-            "| Factor | Weight |",
-            "|--------|--------|",
-        ])
-        for name, w in cfg["combo_weights"].items():
-            report_lines.append(f"| {name} | {w:.4f} |")
-        report_lines.append("")
+    weights_for_attribution = combo_weights or cfg.get("combo_weights")
+    if weights_for_attribution or factor_attribution:
+        report_lines.extend(["", "## Combo Attribution", ""])
+        if weights_for_attribution:
+            report_lines.extend([
+                "### Factor Weights",
+                "",
+                "| Factor | Weight |",
+                "|--------|--------|",
+            ])
+            for name, w in weights_for_attribution.items():
+                report_lines.append(f"| {name} | {w:.4f} |")
+            report_lines.append("")
+        if factor_attribution:
+            report_lines.extend([
+                "### Exposures & Attribution",
+                "",
+                "| Factor | mean_exposure | std_exposure | corr_with_returns |",
+                "|--------|---------------|--------------|-------------------|",
+            ])
+            for name, att in factor_attribution.items():
+                me = att.get("mean_exposure", 0)
+                se = att.get("std_exposure", 0)
+                corr = att.get("corr_with_returns")
+                corr_str = f"{corr:.4f}" if isinstance(corr, (int, float)) and corr == corr else "—"
+                report_lines.append(f"| {name} | {me:.4f} | {se:.4f} | {corr_str} |")
+            report_lines.extend([
+                "",
+                "- [factor_exposures.csv](factor_exposures.csv) — portfolio exposure to each factor by date",
+                "",
+            ])
 
     if portfolio_beta_before is not None and portfolio_beta_after is not None:
         b_bef = portfolio_beta_before.dropna()
@@ -418,6 +504,9 @@ def generate_tearsheet(
         )
     report_lines.extend(["", "## Notes", ""] + notes + [""])
     (out / "REPORT.md").write_text("\n".join(report_lines), encoding="utf-8")
+
+    # 8b) INDEX.md (run directory landing page)
+    _generate_index_md(out, config or {})
 
     # 9) tearsheet.html (legacy)
     rows = "\n".join(

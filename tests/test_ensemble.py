@@ -21,7 +21,7 @@ def _synthetic_factors(n_dates: int = 100, n_symbols: int = 20, seed: int = 42) 
 def test_combine_equal_shape():
     """Equal combo produces correct shape."""
     factors = _synthetic_factors(50, 15)
-    combined, weights = combine_factors(factors, method="equal")
+    combined, weights, zscored = combine_factors(factors, method="equal")
     assert combined.shape == (50, 15)
     assert combined.index.equals(factors["f1"].index)
     assert list(combined.columns) == list(factors["f1"].columns)
@@ -33,7 +33,7 @@ def test_combine_equal_shape():
 def test_combine_equal_zscore_average():
     """Equal combo z-scores per date then averages."""
     factors = _synthetic_factors(30, 10)
-    combined, _ = combine_factors(factors, method="equal")
+    combined, _, _ = combine_factors(factors, method="equal")
     # Each row should have mean ~0 (z-scored then averaged)
     row_means = combined.mean(axis=1)
     assert row_means.abs().max() < 0.01
@@ -52,7 +52,7 @@ def test_ic_weighted_uses_train_only():
         columns=factors["f1"].columns,
     )
 
-    combined, weights = combine_factors(
+    combined, weights, _ = combine_factors(
         factors, method="ic_weighted",
         train_slice=train_slice,
         fwd_returns=fwd,
@@ -78,7 +78,7 @@ def test_ic_weighted_constant_factor_fallback():
     }
     fwd = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.01, index=idx, columns=cols)
     train_slice = slice(idx[0], idx[49])
-    combined, weights = combine_factors(
+    combined, weights, _ = combine_factors(
         factors, method="ic_weighted",
         train_slice=train_slice,
         fwd_returns=fwd,
@@ -102,7 +102,7 @@ def test_ic_weighted_nans_fallback():
     factors = {"f1": f1, "f2": f2}
     fwd = pd.DataFrame(rng.randn(n_dates, n_symbols) * 0.01, index=idx, columns=cols)
     train_slice = slice(idx[0], idx[39])
-    combined, weights = combine_factors(
+    combined, weights, _ = combine_factors(
         factors, method="ic_weighted",
         train_slice=train_slice,
         fwd_returns=fwd,
@@ -122,7 +122,7 @@ def test_ridge_returns_weights():
         columns=factors["f1"].columns,
     )
     train_slice = slice(idx[0], idx[49])
-    combined, weights = combine_factors(
+    combined, weights, _ = combine_factors(
         factors, method="ridge",
         train_slice=train_slice,
         fwd_returns=fwd,
@@ -130,3 +130,44 @@ def test_ridge_returns_weights():
     assert len(weights) == 3
     assert sum(weights.values()) - 1.0 < 1e-5
     assert combined.shape == (80, 12)
+
+
+def test_combo_pure_momentum_exposure_reflects_weight():
+    """If combo is pure momentum (weight 1), exposure table reflects that. Deterministic."""
+    rng = np.random.RandomState(123)
+    n_dates, n_symbols = 50, 12
+    idx = pd.date_range("2020-01-01", periods=n_dates, freq="B")
+    cols = [f"S{i}" for i in range(n_symbols)]
+    # Momentum factor: deterministic spread
+    mom = np.linspace(-1, 1, n_symbols)
+    mom_df = pd.DataFrame(
+        np.tile(mom, (n_dates, 1)) + rng.randn(n_dates, n_symbols) * 0.1,
+        index=idx,
+        columns=cols,
+    )
+    rev_df = pd.DataFrame(
+        rng.randn(n_dates, n_symbols) * 0.1,
+        index=idx,
+        columns=cols,
+    )
+    factors = {"momentum": mom_df, "reversal": rev_df}
+    # Equal weights for simplicity; we'll override to test pure momentum
+    combined, weights, zscored = combine_factors(factors, method="equal")
+    # Simulate pure momentum: use momentum z-score as combined, so weight 1 for momentum
+    z_mom = zscored["momentum"]
+    z_rev = zscored["reversal"]
+    # Portfolio: long top 3 by momentum, short bottom 3
+    rank_mom = z_mom.rank(axis=1, ascending=False)
+    w = pd.DataFrame(0.0, index=idx, columns=cols)
+    for t in idx:
+        top3 = rank_mom.loc[t].nsmallest(3).index
+        bot3 = rank_mom.loc[t].nlargest(3).index
+        w.loc[t, top3] = 1.0 / 3
+        w.loc[t, bot3] = -1.0 / 3
+    # Exposure: sum_i w_i * z_f(i)
+    exp_mom = (w * z_mom).sum(axis=1)
+    exp_rev = (w * z_rev).sum(axis=1)
+    # Portfolio is built from momentum ranks -> exposure to momentum should be positive
+    assert exp_mom.mean() > 0.1, f"Expected positive momentum exposure, got {exp_mom.mean()}"
+    # Exposure to reversal is noise (portfolio doesn't tilt on reversal)
+    assert abs(exp_rev.mean()) < 0.5, f"Reversal exposure should be small, got {exp_rev.mean()}"

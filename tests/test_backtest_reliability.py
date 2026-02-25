@@ -178,6 +178,7 @@ def test_tearsheet_respects_temp_output_dir(tmp_path: Path) -> None:
         "positions.png",
         "summary.json",
         "REPORT.md",
+        "INDEX.md",
         "turnover.png",
     ]
     for name in expected:
@@ -292,3 +293,36 @@ def test_run_demo_writes_to_output_dir_without_touching_root(tmp_path: Path, mon
     assert not any((tmp_path / name).exists() for name in expected if tmp_path != out_dir), (
         "Artifacts must not leak to tmp_path root when output_dir is a subdir"
     )
+
+
+def test_index_md_contains_links_and_reproduce(tmp_path: Path) -> None:
+    """INDEX.md contains quick links, research links, and How to reproduce; does not crash."""
+    # Create fake artifact files so _generate_index_md finds them
+    (tmp_path / "ic_summary.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "ic_h1.csv").write_text("date,ic\n2020-01-01,0.05\n", encoding="utf-8")
+    (tmp_path / "ic_h5.csv").write_text("date,ic\n2020-01-01,0.03\n", encoding="utf-8")
+    (tmp_path / "beta_series.csv").write_text("date,beta_p\n2020-01-01,0.5\n", encoding="utf-8")
+    (tmp_path / "holdings_by_date.csv").write_text("date,S0\n2020-01-01,0.1\n", encoding="utf-8")
+    (tmp_path / "combo_weights.json").write_text("{}", encoding="utf-8")
+
+    config = {
+        "factor": "momentum_12_1",
+        "universe": "liquid_etfs",
+        "period": "5y",
+        "interval": "1d",
+        "cmd": "python scripts/backtest_factors.py --universe liquid_etfs --factor momentum_12_1 --period 5y",
+    }
+    from src.reporting.tearsheet import _generate_index_md
+    _generate_index_md(tmp_path, config)
+
+    index_md = (tmp_path / "INDEX.md").read_text(encoding="utf-8")
+    assert "REPORT.md" in index_md
+    assert "tearsheet.html" in index_md
+    assert "ic_summary.json" in index_md
+    assert "ic_h1.csv" in index_md
+    assert "beta_series.csv" in index_md
+    assert "holdings_by_date.csv" in index_md
+    assert "combo_weights.json" in index_md
+    assert "How to reproduce" in index_md
+    assert "momentum_12_1" in index_md
+    assert "liquid_etfs" in index_md

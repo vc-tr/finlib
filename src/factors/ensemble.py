@@ -13,7 +13,7 @@ def combine_factors(
     train_slice: Optional[slice] = None,
     fwd_returns: Optional[pd.DataFrame] = None,
     ridge_alpha: float = 1.0,
-) -> tuple[pd.DataFrame, dict]:
+) -> tuple[pd.DataFrame, dict, dict[str, pd.DataFrame]]:
     """
     Combine multiple factors into a single composite factor.
 
@@ -25,12 +25,13 @@ def combine_factors(
         ridge_alpha: L2 regularization strength for ridge (default 1.0)
 
     Returns:
-        (combined_factor_df, weights_dict)
+        (combined_factor_df, weights_dict, zscored_dict)
         - combined_factor_df: index=date, columns=symbol, values=composite factor
         - weights_dict: {"factor_name": weight, ...} for reporting
+        - zscored_dict: {"factor_name": zscore_df} for attribution (date x symbol)
     """
     if not factors:
-        return pd.DataFrame(), {}
+        return pd.DataFrame(), {}, {}
 
     # Align all factors to common index/columns
     names = list(factors.keys())
@@ -54,7 +55,7 @@ def combine_factors(
             zscored[n] = z
         combined = sum(zscored.values()) / len(zscored)
         weights = {n: 1.0 / len(names) for n in names}
-        return combined, weights
+        return combined, weights, zscored
 
     if method == "ic_weighted":
         if train_slice is None or fwd_returns is None:
@@ -65,7 +66,7 @@ def combine_factors(
             # Fallback to equal
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}
+            return combined, {n: 1.0 / len(names) for n in names}, zscored
 
         # Compute IC per factor: per-date cross-sectional corr, then nan-safe mean
         ics = []
@@ -108,7 +109,7 @@ def combine_factors(
 
         zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
         combined = sum(weights[n] * zscored[n] for n in names)
-        return combined, weights
+        return combined, weights, zscored
 
     if method == "ridge":
         if train_slice is None or fwd_returns is None:
@@ -117,7 +118,7 @@ def combine_factors(
         if len(train_idx) < 30:
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}
+            return combined, {n: 1.0 / len(names) for n in names}, zscored
 
         # Stack: rows = (date, symbol), cols = factor values, y = fwd return
         X_list = []
@@ -142,7 +143,7 @@ def combine_factors(
         if len(X) < 20:
             zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
             combined = sum(zscored.values()) / len(zscored)
-            return combined, {n: 1.0 / len(names) for n in names}
+            return combined, {n: 1.0 / len(names) for n in names}, zscored
 
         # Ridge: (X'X + alpha*I)^{-1} X' y
         XtX = X.T @ X + ridge_alpha * np.eye(len(names))
@@ -161,7 +162,7 @@ def combine_factors(
 
         zscored = {n: _zscore_cs(df) for n, df in aligned.items()}
         combined = sum(weights[n] * zscored[n] for n in names)
-        return combined, weights
+        return combined, weights, zscored
 
     raise ValueError(f"Unknown method: {method}")
 
