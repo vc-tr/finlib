@@ -42,4 +42,7 @@ output/
 # Coverage reports
 htmlcov/
 .coverage
-.pytest_cache/ 
+.pytest_cache/
+
+# Local-only (never commit)
+docs/RECRUITER_PITCH.md 
