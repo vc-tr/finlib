@@ -24,6 +24,15 @@ def _ensure_dir(path: Path) -> Path:
     return path
 
 
+def _median_adv(capacity_report: Dict[str, Any]) -> float:
+    """Median of per-symbol avg ADV from capacity report."""
+    per_sym = capacity_report.get("per_symbol_adv", {})
+    if not per_sym:
+        return 0.0
+    advs = [v.get("avg_adv", 0) for v in per_sym.values() if v.get("avg_adv", 0) > 0]
+    return float(np.median(advs)) if advs else 0.0
+
+
 def _generate_index_md(out: Path, config: Dict[str, Any]) -> None:
     """Generate INDEX.md landing page with quick links and reproduce command."""
     parts = []
@@ -72,6 +81,10 @@ def _generate_index_md(out: Path, config: Dict[str, Any]) -> None:
     # Combo weights
     if (out / "combo_weights.json").exists():
         lines.append("- [combo_weights.json](combo_weights.json)")
+        lines.append("")
+    # Capacity
+    if (out / "capacity_report.json").exists():
+        lines.append("- [capacity_report.json](capacity_report.json)")
         lines.append("")
 
     cmd = config.get("cmd")
@@ -148,6 +161,7 @@ def generate_tearsheet(
     hedge_weight: Optional[pd.Series] = None,
     beta_series: Optional[pd.Series] = None,
     beta_neutral: bool = False,
+    capacity_report: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
@@ -433,6 +447,24 @@ def generate_tearsheet(
             "",
         ]
         report_lines.extend(beta_exp_lines)
+
+    if capacity_report is not None:
+        ib = capacity_report.get("impact_bps", {})
+        cap_lines = [
+            "",
+            "## Liquidity & Capacity",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| avg ADV (median symbol) | ${_median_adv(capacity_report):,.0f} |",
+            f"| median impact bps | {ib.get('median', 0):.1f} |",
+            f"| estimated capacity (10 bps) | ${capacity_report.get('capacity_notional_at_target_bps', 0):,.0f} |",
+            "",
+            "- [capacity_report.json](capacity_report.json) — per-symbol ADV, impact distribution",
+            "",
+        ]
+        report_lines.extend(cap_lines)
+
     if exposures_stats:
         report_lines.extend([
             "",
