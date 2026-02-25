@@ -237,4 +237,12 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    _no_lock = "--no-lock" in sys.argv
+    if _no_lock:
+        sys.argv.remove("--no-lock")
+    if _no_lock:
+        main()
+    else:
+        from src.utils.runlock import RunLock
+        with RunLock():
+            main()
