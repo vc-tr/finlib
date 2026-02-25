@@ -76,6 +76,12 @@ def _current_weights(cash: float, positions: dict, prices: dict[str, float]) -> 
     return w
 
 
+def _compute_turnover(target_w: dict[str, float], current_w: dict[str, float]) -> float:
+    """Turnover = 0.5 * sum_i |w_target_i - w_current_i| over all tradable symbols (exclude cash)."""
+    all_syms = set(target_w.keys()) | set(current_w.keys())
+    return 0.5 * sum(abs(target_w.get(s, 0.0) - current_w.get(s, 0.0)) for s in all_syms)
+
+
 def _run_daily(
     df_by_symbol: dict[str, pd.DataFrame],
     strategy: str,
@@ -98,6 +104,7 @@ def _run_daily(
     state_path: Path,
     output_dir: Path,
     apply: bool,
+    force_rebalance: bool = False,
 ) -> dict:
     """Run daily pipeline. Returns summary dict."""
     prices = get_prices_wide(df_by_symbol)
@@ -129,9 +136,14 @@ def _run_daily(
     target_w = {s: float(target_row[s]) for s in target_row.index if pd.notna(target_row[s]) and abs(target_row[s]) > 1e-10}
 
     # 2) Current portfolio
-    portfolio = _load_current_portfolio(state_path)
+    state_path_resolved = state_path.resolve()
+    portfolio = _load_current_portfolio(state_path_resolved)
     cash = portfolio["cash"]
     positions = portfolio["positions"]
+    if portfolio["asof"] is not None and (cash != 0 or positions):
+        print(f"Loaded state: {state_path_resolved} (positions={len(positions)}, cash=${cash:,.0f})")
+    else:
+        print("No prior state, starting from cash.")
     if cash == 0 and not positions:
         cash = initial_cash
     prices_ts = {s: float(prices.loc[asof, s]) for s in prices.columns if asof in prices.index and pd.notna(prices.loc[asof, s])}
@@ -143,102 +155,128 @@ def _run_daily(
 
     current_w = _current_weights(cash, positions, prices_ts)
 
-    # 3) Delta orders
-    all_syms = set(current_w.keys()) | set(target_w.keys())
-    orders = []
-    for sym in all_syms:
-        tw = target_w.get(sym, 0.0)
-        cw = current_w.get(sym, 0.0)
-        delta = tw - cw
-        if abs(delta) < 1e-6:
-            continue
-        pr = prices_ts.get(sym, 0)
-        if pr <= 0:
-            continue
-        notional = delta * pv
-        qty = notional / pr
-        if abs(qty) < 1e-6:
-            continue
-        side = "buy" if delta > 0 else "sell"
-        orders.append({
-            "symbol": sym,
-            "side": side,
-            "quantity": abs(qty),
-            "weight_delta": delta,
-            "notional": abs(notional),
-            "fill_price": pr,
-        })
-
-    # 4) Simulate post-trade state for risk checks
-    new_positions = dict(positions)
-    new_cash = cash
-    for o in orders:
-        sym, side, qty, pr = o["symbol"], o["side"], o["quantity"], o["fill_price"]
-        if side == "buy":
-            new_positions[sym] = new_positions.get(sym, 0) + qty
-            new_cash -= qty * pr
-        else:
-            new_positions[sym] = new_positions.get(sym, 0) - qty
-            new_cash += qty * pr
-    new_positions = {s: q for s, q in new_positions.items() if abs(q) > 1e-6}
-
-    # 5) Risk checks
-    new_pv = _portfolio_value(new_cash, new_positions, prices_ts)
-    gross = sum(abs(new_positions.get(s, 0) * prices_ts.get(s, 0)) for s in new_positions) if new_pv > 0 else 0
-    net = sum(new_positions.get(s, 0) * prices_ts.get(s, 0) for s in new_positions)
-    gross_w = gross / new_pv if new_pv > 0 else 0
-    net_w = net / new_pv if new_pv > 0 else 0
-    max_single_w = 0.0
-    for s, q in new_positions.items():
-        w = abs(q * prices_ts.get(s, 0)) / new_pv if new_pv > 0 else 0
-        max_single_w = max(max_single_w, w)
-
-    returns = prices.pct_change()
-    market_ret = returns[MARKET_SYMBOL] if MARKET_SYMBOL in returns.columns else pd.Series(dtype=float)
-    beta_p = 0.0
-    if len(market_ret) > 20 and MARKET_SYMBOL in df_by_symbol:
-        betas = estimate_beta(returns, market_ret, window=min(252, len(returns)))
-        if asof in betas.index:
-            for s, q in new_positions.items():
-                if s in betas.columns:
-                    beta_p += (q * prices_ts.get(s, 0) / new_pv) * betas.loc[asof, s] if new_pv > 0 else 0
-
-    risk_checks = {
-        "gross_weight": gross_w,
-        "net_weight": net_w,
-        "max_single_weight": max_single_w,
-        "portfolio_beta": beta_p,
-        "max_gross_breach": max_gross is not None and gross_w > max_gross,
-        "max_net_breach": max_net is not None and abs(net_w) > max_net,
-        "max_position_breach": max_position_weight is not None and max_single_w > max_position_weight,
-        "beta_breach": abs(beta_p) > beta_threshold,
-    }
-
-    # 6) Expected costs (build trades from orders)
-    if orders:
-        rows = []
-        for o in orders:
-            trade_weight = abs(o["weight_delta"])
-            rows.append({
-                "timestamp": asof,
-                "symbol": o["symbol"],
-                "trade_weight": trade_weight,
-                "side": o["side"],
-                "fill_price": o["fill_price"],
-                "trade_notional": o["notional"],
-            })
-        trades_df = pd.DataFrame(rows)
-        if cost_model == "liquidity":
-            model = LiquidityAwareCostModel()
-        else:
-            model = FixedBpsCostModel()
-        config = {"fee_bps": fee_bps, "slippage_bps": slippage_bps, "spread_bps": spread_bps}
-        trades_df = model.estimate_costs(trades_df, df_by_symbol, config)
-        expected_costs = float(trades_df["total_cost"].sum())
-    else:
+    # 2b) Rebalance day check (M/W only; D always rebalances)
+    rb_dates = rebalance_dates(prices.index, rebalance)
+    is_rebalance_day = asof in rb_dates
+    if not is_rebalance_day and not force_rebalance:
+        print("Not a rebalance day; no orders generated.")
+        orders = []
+        turnover = 0.0
         expected_costs = 0.0
+        new_positions = dict(positions)
+        new_cash = cash
+        new_pv = pv
+        gross_w = sum(abs(positions.get(s, 0) * prices_ts.get(s, 0)) for s in positions) / pv if pv > 0 else 0
+        net_w = sum(positions.get(s, 0) * prices_ts.get(s, 0) for s in positions) / pv if pv > 0 else 0
+        max_single_w = max((abs(positions.get(s, 0) * prices_ts.get(s, 0)) / pv for s in positions), default=0.0) if pv > 0 else 0.0
+        beta_p = 0.0
+        risk_checks = {
+            "gross_weight": gross_w,
+            "net_weight": net_w,
+            "max_single_weight": max_single_w,
+            "portfolio_beta": beta_p,
+            "max_gross_breach": False,
+            "max_net_breach": False,
+            "max_position_breach": False,
+            "beta_breach": False,
+        }
+    else:
+        # 3) Delta orders
+        all_syms = set(current_w.keys()) | set(target_w.keys())
+        orders = []
+        for sym in all_syms:
+            tw = target_w.get(sym, 0.0)
+            cw = current_w.get(sym, 0.0)
+            delta = tw - cw
+            if abs(delta) < 1e-6:
+                continue
+            pr = prices_ts.get(sym, 0)
+            if pr <= 0:
+                continue
+            notional = delta * pv
+            qty = notional / pr
+            if abs(qty) < 1e-6:
+                continue
+            side = "buy" if delta > 0 else "sell"
+            orders.append({
+                "symbol": sym,
+                "side": side,
+                "quantity": abs(qty),
+                "weight_delta": delta,
+                "notional": abs(notional),
+                "fill_price": pr,
+            })
 
-    turnover = sum(o["notional"] for o in orders) / pv if pv > 0 else 0
+        # 4) Simulate post-trade state for risk checks
+        new_positions = dict(positions)
+        new_cash = cash
+        for o in orders:
+            sym, side, qty, pr = o["symbol"], o["side"], o["quantity"], o["fill_price"]
+            if side == "buy":
+                new_positions[sym] = new_positions.get(sym, 0) + qty
+                new_cash -= qty * pr
+            else:
+                new_positions[sym] = new_positions.get(sym, 0) - qty
+                new_cash += qty * pr
+        new_positions = {s: q for s, q in new_positions.items() if abs(q) > 1e-6}
+
+        # 5) Risk checks
+        new_pv = _portfolio_value(new_cash, new_positions, prices_ts)
+        gross = sum(abs(new_positions.get(s, 0) * prices_ts.get(s, 0)) for s in new_positions) if new_pv > 0 else 0
+        net = sum(new_positions.get(s, 0) * prices_ts.get(s, 0) for s in new_positions)
+        gross_w = gross / new_pv if new_pv > 0 else 0
+        net_w = net / new_pv if new_pv > 0 else 0
+        max_single_w = 0.0
+        for s, q in new_positions.items():
+            w = abs(q * prices_ts.get(s, 0)) / new_pv if new_pv > 0 else 0
+            max_single_w = max(max_single_w, w)
+
+        returns = prices.pct_change()
+        market_ret = returns[MARKET_SYMBOL] if MARKET_SYMBOL in returns.columns else pd.Series(dtype=float)
+        beta_p = 0.0
+        if len(market_ret) > 20 and MARKET_SYMBOL in df_by_symbol:
+            betas = estimate_beta(returns, market_ret, window=min(252, len(returns)))
+            if asof in betas.index:
+                for s, q in new_positions.items():
+                    if s in betas.columns:
+                        beta_p += (q * prices_ts.get(s, 0) / new_pv) * betas.loc[asof, s] if new_pv > 0 else 0
+
+        risk_checks = {
+            "gross_weight": gross_w,
+            "net_weight": net_w,
+            "max_single_weight": max_single_w,
+            "portfolio_beta": beta_p,
+            "max_gross_breach": max_gross is not None and gross_w > max_gross,
+            "max_net_breach": max_net is not None and abs(net_w) > max_net,
+            "max_position_breach": max_position_weight is not None and max_single_w > max_position_weight,
+            "beta_breach": abs(beta_p) > beta_threshold,
+        }
+
+        # 6) Expected costs (build trades from orders)
+        if orders:
+            rows = []
+            for o in orders:
+                trade_weight = abs(o["weight_delta"])
+                rows.append({
+                    "timestamp": asof,
+                    "symbol": o["symbol"],
+                    "trade_weight": trade_weight,
+                    "side": o["side"],
+                    "fill_price": o["fill_price"],
+                    "trade_notional": o["notional"],
+                })
+            trades_df = pd.DataFrame(rows)
+            if cost_model == "liquidity":
+                model = LiquidityAwareCostModel()
+            else:
+                model = FixedBpsCostModel()
+            config = {"fee_bps": fee_bps, "slippage_bps": slippage_bps, "spread_bps": spread_bps}
+            trades_df = model.estimate_costs(trades_df, df_by_symbol, config)
+            expected_costs = float(trades_df["total_cost"].sum())
+        else:
+            expected_costs = 0.0
+
+        turnover = _compute_turnover(target_w, current_w)
 
     # 7) Write outputs
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -287,9 +325,10 @@ def _run_daily(
     # risk_checks.json with JSON-serializable types (numpy/pandas scalars)
     (output_dir / "risk_checks.json").write_text(json.dumps(to_jsonable(risk_checks), indent=2), encoding="utf-8")
 
-    # 8) Apply if requested
-    if apply and not any([risk_checks["max_gross_breach"], risk_checks["max_net_breach"], risk_checks["max_position_breach"]]):
-        _save_current_portfolio(state_path, new_cash, new_positions, str(asof.date()))
+    # 8) Apply if requested (only on rebalance days when we generated orders)
+    if apply and (is_rebalance_day or force_rebalance) and not any([risk_checks["max_gross_breach"], risk_checks["max_net_breach"], risk_checks["max_position_breach"]]):
+        state_path_resolved.parent.mkdir(parents=True, exist_ok=True)
+        _save_current_portfolio(state_path_resolved, new_cash, new_positions, str(asof.date()))
 
     summary = {
         "asof": str(asof.date()),
@@ -329,6 +368,7 @@ def main() -> None:
     parser.add_argument("--beta-threshold", type=float, default=0.5)
     parser.add_argument("--state-path", default=None)
     parser.add_argument("--apply", action="store_true", help="Update current_portfolio.json")
+    parser.add_argument("--force-rebalance", action="store_true", help="Generate orders even on non-rebalance days")
     parser.add_argument("--period", default="5y")
     parser.add_argument("--no-lock", action="store_true")
     parser.add_argument("--lock-timeout", type=float, default=0)
@@ -398,6 +438,7 @@ def main() -> None:
         state_path=state_path,
         output_dir=output_dir,
         apply=args.apply,
+        force_rebalance=args.force_rebalance,
     )
 
     if "error" in result:
