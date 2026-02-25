@@ -228,6 +228,7 @@ def _run_walkforward(
     per_fold = []
     all_returns = []
     combo_weights_per_fold = []
+    factor_df_per_fold = []
 
     for fold in fold_list:
         test_start, test_end = fold.test_start, fold.test_end
@@ -253,7 +254,6 @@ def _run_walkforward(
                 })
         else:
             factor_df, _ = _get_factor_df(df_by_hist, factor, None, "equal", None)
-
         out = _run_factor_backtest(
             df_by_hist, factor_df, top_k, bottom_k, rebalance,
             fee_bps, slippage_bps, spread_bps, annualization,
@@ -262,6 +262,7 @@ def _run_walkforward(
         test_ret = result.returns.loc[test_start:test_end].dropna()
         if len(test_ret) < 5:
             continue
+        factor_df_per_fold.append((fold.fold_idx, factor_df))
         fold_result = Backtester(annualization_factor=annualization).run(test_ret)
         per_fold.append({
             "fold_idx": fold.fold_idx,
@@ -294,6 +295,8 @@ def _run_walkforward(
         out["combo_weights_per_fold"] = combo_weights_per_fold
     if agg_ret is not None:
         out["all_returns"] = agg_ret
+    if factor_df_per_fold:
+        out["factor_df_per_fold"] = factor_df_per_fold
     return out
 
 
@@ -327,6 +330,9 @@ def main() -> None:
     parser.add_argument("--beta-window", type=int, default=252, help="Rolling window for beta estimation")
     parser.add_argument("--max-gross", type=float, default=None, help="Cap gross exposure per rebalance")
     parser.add_argument("--max-net", type=float, default=None, help="Cap net exposure per rebalance")
+    parser.add_argument("--report-ic", action="store_true", help="Compute and report IC/IR metrics")
+    parser.add_argument("--ic-horizons", default="1,5,21", help="Comma-separated IC horizons (default 1,5,21)")
+    parser.add_argument("--ic-method", default="spearman", choices=["spearman", "pearson"], help="IC correlation method")
     args = parser.parse_args()
 
     symbols = get_universe(args.universe, n=50)
@@ -383,6 +389,61 @@ def main() -> None:
                 agg["beta_std"] = float(valid.std()) if len(valid) > 1 else 0.0
                 agg["beta_max_abs"] = float(beta_p.abs().max()) if len(beta_p) > 0 else 0.0
 
+        # IC reporting for walkforward: compute on concatenated test windows only
+        if args.report_ic and "all_returns" in wf_result and "factor_df_per_fold" in wf_result:
+            ic_horizons = [int(x.strip()) for x in args.ic_horizons.split(",") if x.strip()] or [1, 5, 21]
+            fwd = forward_returns(prices_wide, horizons=ic_horizons)
+            factor_by_fold = {fidx: fdf for fidx, fdf in wf_result["factor_df_per_fold"]}
+            ic_summary_wf = {}
+            for h in ic_horizons:
+                ic_list = []
+                for fold in wf_result.get("per_fold", []):
+                    fidx = fold["fold_idx"]
+                    if fidx not in factor_by_fold:
+                        continue
+                    test_start = pd.Timestamp(fold["test_start"])
+                    test_end = pd.Timestamp(fold["test_end"])
+                    factor_slice = factor_by_fold[fidx].loc[test_start:test_end]
+                    fwd_slice = fwd[h].loc[test_start:test_end]
+                    ic_s = cross_sectional_ic(factor_slice, fwd_slice, method=args.ic_method)
+                    ic_list.append(ic_s)
+                ic_concat = pd.concat(ic_list).sort_index()
+                ic_concat = ic_concat[~ic_concat.index.duplicated(keep="first")]
+                ic_summary_wf[str(h)] = summarize_ic(ic_concat)
+                ic_concat.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
+            ic_config = {
+                "horizons": ic_horizons,
+                "method": args.ic_method,
+                "scope": "walkforward_test_windows_only",
+                "note": "IC computed on concatenated OOS test windows; no train data used.",
+            }
+            (output_dir / "ic_summary.json").write_text(
+                json.dumps({"config": ic_config, "summary": ic_summary_wf}, indent=2), encoding="utf-8"
+            )
+        elif args.report_ic and "all_returns" in wf_result:
+            # Simpler: compute IC on full factor_df aligned with test dates
+            ic_horizons = [int(x.strip()) for x in args.ic_horizons.split(",") if x.strip()] or [1, 5, 21]
+            fwd = forward_returns(prices_wide, horizons=ic_horizons)
+            agg_ret = wf_result["all_returns"]
+            test_dates = agg_ret.index
+            factor_full, _ = _get_factor_df(df_by_symbol, args.factor, combo_list, args.combo_method, None)
+            factor_test = factor_full.reindex(test_dates).dropna(how="all")
+            ic_summary_wf = {}
+            for h in ic_horizons:
+                fwd_h = fwd[h].reindex(factor_test.index)
+                ic_s = cross_sectional_ic(factor_test, fwd_h, method=args.ic_method)
+                ic_s.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
+                ic_summary_wf[str(h)] = summarize_ic(ic_s)
+            ic_config = {
+                "horizons": ic_horizons,
+                "method": args.ic_method,
+                "scope": "walkforward_test_windows_only",
+                "note": "IC computed on dates in concatenated OOS test windows.",
+            }
+            (output_dir / "ic_summary.json").write_text(
+                json.dumps({"config": ic_config, "summary": ic_summary_wf}, indent=2), encoding="utf-8"
+            )
+
         summary = {"walkforward": True, "aggregated": agg, "per_fold": wf_result["per_fold"]}
         if "combo_weights_per_fold" in wf_result:
             summary["combo_weights_per_fold"] = wf_result["combo_weights_per_fold"]
@@ -436,20 +497,29 @@ def main() -> None:
             json.dumps(combo_weights, indent=2), encoding="utf-8"
         )
 
-    # IC research metrics (for any factor including combo)
-    ic_horizons = [1, 5, 21]
-    fwd = forward_returns(prices, horizons=ic_horizons)
-    ic_summary = {}
-    ic_preview = {}
-    for h in ic_horizons:
-        ic_series = cross_sectional_ic(factor_df, fwd[h], method="spearman")
-        ic_series.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
-        ic_summary[str(h)] = summarize_ic(ic_series)
-        ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
-
-    (output_dir / "ic_summary.json").write_text(
-        json.dumps(ic_summary, indent=2), encoding="utf-8"
-    )
+    # IC research metrics (when --report-ic)
+    ic_summary = None
+    ic_preview = None
+    if args.report_ic:
+        ic_horizons = [int(x.strip()) for x in args.ic_horizons.split(",") if x.strip()]
+        if not ic_horizons:
+            ic_horizons = [1, 5, 21]
+        fwd = forward_returns(prices, horizons=ic_horizons)
+        ic_summary = {}
+        ic_preview = {}
+        for h in ic_horizons:
+            ic_series = cross_sectional_ic(factor_df, fwd[h], method=args.ic_method)
+            ic_series.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
+            ic_summary[str(h)] = summarize_ic(ic_series)
+            ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
+        ic_config = {
+            "horizons": ic_horizons,
+            "method": args.ic_method,
+            "scope": "full_backtest_window",
+        }
+        (output_dir / "ic_summary.json").write_text(
+            json.dumps({"config": ic_config, "summary": ic_summary}, indent=2), encoding="utf-8"
+        )
 
     # Market beta exposure: rolling beta of portfolio vs market
     beta_series = None

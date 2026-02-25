@@ -385,7 +385,7 @@ def generate_tearsheet(
 
     if ic_summary and ic_preview:
         report_lines.extend([
-            "## Information Coefficient",
+            "## Factor Research (IC/IR)",
             "",
             "| Horizon | mean_ic | std_ic | IR | t_stat | n |",
             "|---------|---------|--------|-----|--------|---|",

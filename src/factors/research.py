@@ -117,10 +117,10 @@ def summarize_ic(ic_series: pd.Series) -> Dict[str, float]:
     std_ic = float(ic.std())
     if std_ic > 1e-10:
         ir = mean_ic / std_ic
-        t_stat = mean_ic / (std_ic / np.sqrt(n))
+        t_stat = mean_ic / (std_ic / np.sqrt(n)) if n > 1 else np.nan
     else:
         ir = 0.0 if mean_ic == 0 else np.nan
-        t_stat = 0.0 if mean_ic == 0 else np.nan  # avoid inf for robustness
+        t_stat = np.nan  # n==1 or zero variance
     return {
         "mean_ic": mean_ic,
         "std_ic": std_ic,
