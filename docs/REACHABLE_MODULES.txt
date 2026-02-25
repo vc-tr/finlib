@@ -10,6 +10,7 @@ src/backtest/engine.py
 src/backtest/execution.py
 src/backtest/factor_backtest.py
 src/backtest/walkforward.py
+src/experimental/models/lstm.py
 src/factors/__init__.py
 src/factors/ensemble.py
 src/factors/factors.py
@@ -20,7 +21,6 @@ src/factors/risk.py
 src/factors/runner.py
 src/factors/universe.py
 src/factors/weight_learning.py
-src/models/lstm.py
 src/ops/__init__.py
 src/ops/daily.py
 src/ops/monitor.py
