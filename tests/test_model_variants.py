@@ -1,6 +1,6 @@
 import torch
 import pytest
-from src.models.lstm import PriceLSTM
+from src.experimental.models.lstm import PriceLSTM
 
 @pytest.mark.parametrize("bidirectional, dropout, layer_norm, use_attention", [
     (False, 0.0, False, False),

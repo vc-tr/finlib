@@ -181,6 +181,7 @@ def _write_index(run_dir: Path, configs: dict, summaries: dict) -> None:
 
 
 def main() -> None:
+    print("[DEPRECATED] make_research_bundle.py will be removed. Run entrypoints manually. REMOVE AFTER 2025-06-01.")
     parser = argparse.ArgumentParser(description="Generate recruiter-friendly research bundle")
     parser.add_argument("--symbol", default="SPY", help="Ticker symbol")
     parser.add_argument("--output-dir", help="Run directory (default: output/runs/<timestamp>_bundle_<symbol>/)")

@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-Momentum parameter sweep: run backtests for each combo of lookback, min_hold, decision_interval.
-
-Usage:
-    python scripts/sweep_momentum.py --symbol SPY --period 2y
-    python scripts/sweep_momentum.py --symbol SPY --period 7d --interval 1m --lookbacks "10,20,50" --min_holds "1,5,15" --decision_intervals "1,15"
+Momentum parameter sweep. DEPRECATED: REMOVE AFTER 2025-06-01.
+Use backtest_factors with different parameters instead.
 """
 
 import argparse
@@ -25,6 +22,7 @@ from src.utils.io import cap_period_for_interval
 
 
 def main() -> None:
+    print("[DEPRECATED] sweep_momentum.py will be removed 2025-06-01. Use backtest_factors.")
     parser = argparse.ArgumentParser(description="Momentum parameter sweep")
     parser.add_argument("--symbol", default="SPY", help="Ticker symbol")
     parser.add_argument("--period", default="2y", help="Data period")
@@ -42,13 +40,11 @@ def main() -> None:
     min_holds = [int(x.strip()) for x in args.min_holds.split(",")]
     decision_intervals = [int(x.strip()) for x in args.decision_intervals.split(",")]
 
-    # Cap period for 1m unless --force
     new_period = cap_period_for_interval(args.interval, args.period, period_override=args.force)
     if new_period != args.period:
         args.period = new_period
         print(f"[WARN] 1m capped to {args.period} (use --force to override)")
 
-    # Fetch data once
     print(f"Fetching {args.symbol} ({args.period}, {args.interval})...")
     fetcher = YahooDataFetcher(max_retries=2, retry_delay=1)
     df = fetcher.fetch_ohlcv(args.symbol, args.interval, period=args.period)
@@ -99,7 +95,6 @@ def main() -> None:
         if (i + 1) % 10 == 0 or i + 1 == len(combos):
             print(f"  {i + 1}/{len(combos)} combos done")
 
-    # Output directory: explicit or default output/runs/<timestamp>_sweep_<symbol>_<interval>/
     if args.output_dir:
         output_dir = Path(args.output_dir)
     else:
@@ -108,14 +103,12 @@ def main() -> None:
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save CSV
     out_path = output_dir / "momentum_results.csv"
     df_out = pd.DataFrame(rows)
     df_out.to_csv(out_path, index=False)
     print(f"\nSaved {out_path}")
     print(f"Output directory: {output_dir}")
 
-    # Top 5 by Sharpe and by total return
     by_sharpe = df_out.sort_values("sharpe", ascending=False).head(5)
     by_return = df_out.sort_values("total_return", ascending=False).head(5)
     print("\nTop 5 by Sharpe:")

@@ -1,5 +1,5 @@
 import torch
-from src.models.lstm import PriceLSTM
+from src.experimental.models.lstm import PriceLSTM
 
 def test_lstm_output_shape():
     batch, seq_len, feat = 8, 30, 10

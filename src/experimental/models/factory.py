@@ -1,9 +1,10 @@
 from typing import Type
-from src.models.lstm import PriceLSTM
-from src.models.gru import PriceGRU
-from src.models.bilstm import PriceBiLSTM
-from src.models.transformer import PriceTransformer
-from src.models.tcn import PriceTCN
+
+from .bilstm import PriceBiLSTM
+from .gru import PriceGRU
+from .lstm import PriceLSTM
+from .tcn import PriceTCN
+from .transformer import PriceTransformer
 
 _MODEL_MAP = {
     "lstm": PriceLSTM,

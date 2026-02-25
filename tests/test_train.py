@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.models.lstm import PriceLSTM
+from src.experimental.models.lstm import PriceLSTM
 
 
 def test_lstm_model():
