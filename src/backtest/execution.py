@@ -107,6 +107,23 @@ def build_trades_dataframe(
     )
 
 
+def throttle_positions(positions: pd.Series, decision_interval_bars: int) -> pd.Series:
+    """
+    Only allow position changes at bars where index % K == 0.
+    At other bars, hold the last decision. Still applies delay_bars downstream.
+    """
+    if decision_interval_bars <= 1:
+        return positions
+    arr = positions.values.copy()
+    last = float(arr[0]) if len(arr) > 0 and not np.isnan(arr[0]) else 0.0
+    for i in range(len(arr)):
+        if i % decision_interval_bars == 0:
+            last = arr[i]
+        else:
+            arr[i] = last
+    return pd.Series(arr, index=positions.index)
+
+
 def compute_turnover(signals: pd.Series) -> pd.Series:
     """Compute turnover as |position change|."""
     return signals.diff().abs().fillna(0)

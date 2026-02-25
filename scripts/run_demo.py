@@ -19,29 +19,12 @@ import pandas as pd
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
 from src.pipeline.pipeline import reindex_and_backfill
 from src.backtest import Backtester
-from src.backtest.execution import ExecutionConfig, compute_turnover
+from src.backtest.execution import ExecutionConfig, compute_turnover, throttle_positions
 from src.strategies import MomentumStrategy
 
 
 # Period caps for minute data (Yahoo: 1m ~7d, 5m ~60d)
 INTERVAL_PERIOD_CAP = {"1m": "7d", "5m": "60d", "1h": "730d"}
-
-
-def _throttle_positions(positions: pd.Series, decision_interval_bars: int) -> pd.Series:
-    """
-    Only allow position changes at bars where index % K == 0.
-    At other bars, hold the last decision. Still applies delay_bars downstream.
-    """
-    if decision_interval_bars <= 1:
-        return positions
-    arr = positions.values.copy()
-    last = float(arr[0]) if len(arr) > 0 and not np.isnan(arr[0]) else 0.0
-    for i in range(len(arr)):
-        if i % decision_interval_bars == 0:
-            last = arr[i]
-        else:
-            arr[i] = last
-    return pd.Series(arr, index=positions.index)
 
 
 def _parse_period_days(period: str) -> int:
@@ -137,7 +120,7 @@ def main() -> None:
     print(f"[2/5] Momentum (lookback={args.lookback}, min_hold={args.min_hold_bars})...")
     strategy = MomentumStrategy(lookback=args.lookback, min_hold_bars=args.min_hold_bars)
     positions, _ = strategy.backtest_returns(close)
-    positions = _throttle_positions(positions, args.decision_interval_bars)
+    positions = throttle_positions(positions, args.decision_interval_bars)
 
     # 3) Backtest
     print("[3/5] Backtesting...")
