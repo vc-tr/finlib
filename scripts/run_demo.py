@@ -9,7 +9,9 @@ Usage:
 
 import argparse
 import json
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -62,6 +64,7 @@ def main() -> None:
     parser.add_argument("--no-cache", action="store_true", help="Disable cache (always fetch)")
     parser.add_argument("--period-override", action="store_true", help="Allow period > cap for minute data")
     parser.add_argument("--force", action="store_true", help="Alias for --period-override (bypass period cap)")
+    parser.add_argument("--output-dir", help="Output directory for artifacts (default: output/runs/<timestamp>_<symbol>_<interval>/)")
     args = parser.parse_args()
 
     # Load config if provided
@@ -99,6 +102,15 @@ def main() -> None:
     # decision_interval_bars default: 1 for daily, 15 for minute
     if args.decision_interval_bars is None:
         args.decision_interval_bars = 15 if args.interval in ("1m", "5m") else 1
+
+    # Output directory: explicit or default output/runs/<timestamp>_<symbol>_<interval>/
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Path("output") / "runs" / f"{ts}_{args.symbol}_{args.interval}"
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     # 1) Data download
     print(f"[1/5] Fetching {args.symbol} ({args.period}, {args.interval})...")
@@ -187,11 +199,9 @@ def main() -> None:
 
     # 7) Tear-sheet
     print("[5/5] Writing tear-sheet...")
-    out_dir = Path("output")
-    out_dir.mkdir(exist_ok=True)
     from src.reporting.tearsheet import generate_tearsheet
     generate_tearsheet(
-        result, close, positions, out_dir,
+        result, close, positions, output_dir,
         annualization=annualization,
         config={
             "symbol": args.symbol,
@@ -206,7 +216,7 @@ def main() -> None:
         },
     )
     if result_zero is not None:
-        summary_path = out_dir / "summary.json"
+        summary_path = output_dir / "summary.json"
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         summary["with_costs"] = {"sharpe": result.sharpe_ratio, "total_return": result.total_return}
         summary["zero_costs"] = {"sharpe": result_zero.sharpe_ratio, "total_return": result_zero.total_return}
@@ -215,9 +225,15 @@ def main() -> None:
             "total_return": result.total_return - result_zero.total_return,
         }
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    print(f"  Saved to {out_dir}/")
 
-    print("\nDone.")
+    # Mirror to output/latest (delete and recreate)
+    latest_dir = Path("output") / "latest"
+    if latest_dir.exists():
+        shutil.rmtree(latest_dir)
+    shutil.copytree(str(output_dir), str(latest_dir))
+
+    print(f"  Saved to {output_dir}/")
+    print(f"\nOutput directory: {output_dir}")
 
 
 if __name__ == "__main__":

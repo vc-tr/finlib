@@ -153,3 +153,34 @@ def test_tearsheet_outputs_files(tmp_path: Path) -> None:
     assert (tmp_path / "summary.json").exists()
     assert (tmp_path / "REPORT.md").exists()
     assert (tmp_path / "turnover.png").exists()
+
+
+def test_tearsheet_respects_temp_output_dir(tmp_path: Path) -> None:
+    """Tear-sheet generation writes all artifacts only to the specified output directory."""
+    prices = _rising_prices(50)
+    signals = pd.Series(0, index=prices.index)
+    signals.iloc[10:40] = 1
+
+    bt = Backtester()
+    result = bt.run_from_signals(prices, signals)
+
+    out_subdir = tmp_path / "custom_output"
+    out_subdir.mkdir()
+    generate_tearsheet(result, prices, signals, out_subdir)
+
+    # All artifacts must be in the specified dir, not in tmp_path root
+    expected = [
+        "tearsheet.html",
+        "equity_curve.png",
+        "drawdown.png",
+        "returns_hist.png",
+        "positions.png",
+        "summary.json",
+        "REPORT.md",
+        "turnover.png",
+    ]
+    for name in expected:
+        assert (out_subdir / name).exists(), f"Expected {name} in {out_subdir}"
+    assert not any((tmp_path / f).exists() for f in expected), (
+        "Artifacts must not leak to parent of output_dir"
+    )
