@@ -575,6 +575,33 @@ def generate_tearsheet(
         ]
         report_lines.extend(sig_lines)
 
+    # Fama-French factor attribution
+    try:
+        from src.research.attribution import (
+            ff5_attribution as _ff5, format_attribution_report as _fmt_attr,
+        )
+        strat_name = (
+            config.get("strategy", "strategy") if config else "strategy"
+        )
+        attr_result = _ff5(
+            returns,
+            strategy_name=strat_name,
+            annualization=int(annualization),
+        )
+        attr_dict = attr_result.to_dict()
+        (out / "attribution.json").write_text(
+            json.dumps(attr_dict, indent=2, default=str), encoding="utf-8"
+        )
+        attr_lines = ["", _fmt_attr(attr_result), ""]
+        attr_lines += [
+            "- [attribution.json](attribution.json)"
+            " — full factor attribution",
+            "",
+        ]
+        report_lines.extend(attr_lines)
+    except Exception:
+        pass
+
     report_lines.extend(["", "## Charts", ""])
     for p in pngs:
         if (out / f"{p}.png").exists():
