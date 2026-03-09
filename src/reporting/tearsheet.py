@@ -162,6 +162,7 @@ def generate_tearsheet(
     beta_series: Optional[pd.Series] = None,
     beta_neutral: bool = False,
     capacity_report: Optional[Dict[str, Any]] = None,
+    n_trials: int = 1,
 ) -> None:
     """
     Generate tear-sheet: summary.json, REPORT.md, PNG charts, tearsheet.html.
@@ -345,6 +346,23 @@ def generate_tearsheet(
     if config:
         summary["config"] = config
 
+    # Significance testing (Lo 2002 SE + bootstrap CI + DSR)
+    sig_report: Optional[Dict[str, Any]] = None
+    try:
+        from src.research.significance import significance_report as _sig_report
+        sig_report = _sig_report(
+            returns,
+            strategy_name=config.get("strategy", "strategy") if config else "strategy",
+            n_trials=n_trials,
+            annualization=int(annualization),
+            n_bootstrap=500,
+        )
+        (out / "significance.json").write_text(
+            json.dumps(sig_report, indent=2, default=str), encoding="utf-8"
+        )
+    except Exception:
+        pass  # significance module optional — don't break tearsheet
+
     # 7) summary.json
     summary_json = {
         "sharpe": result.sharpe_ratio,
@@ -517,6 +535,45 @@ def generate_tearsheet(
         for h, vals in sorted(ic_preview.items(), key=lambda x: int(x[0])):
             report_lines.append(f"**IC(h={h}) last 10:** " + ", ".join(f"{v:.4f}" for v in vals))
             report_lines.append("")
+
+    # Significance section
+    if sig_report is not None:
+        sr = sig_report
+        sig_lines = [
+            "",
+            "## Statistical Significance",
+            "",
+            "> Lo (2002) Sharpe SE · Block Bootstrap 95% CI"
+            " · Deflated Sharpe Ratio (Bailey & Lopez de Prado 2014)",
+            "",
+            "| Metric | Value |",
+            "|--------|-------|",
+            f"| Observations | {sr.get('n_obs', '—')} |",
+            f"| Sharpe (ann.) | {sr.get('sharpe', float('nan')):.4f} |",
+            f"| Sharpe SE (Lo 2002) | {sr.get('sharpe_se', float('nan')):.4f} |",
+            f"| t-statistic | {sr.get('t_stat', float('nan')):.3f} |",
+            f"| p-value (SR=0) | {sr.get('p_value', float('nan')):.4f} |",
+            f"| Significant (5%) | {'Yes ✓' if sr.get('significant_5pct') else 'No ✗'} |",
+            f"| 95% CI (bootstrap) | [{sr.get('ci_95_lower', float('nan')):.2f},"
+            f" {sr.get('ci_95_upper', float('nan')):.2f}] |",
+            f"| Skewness | {sr.get('skewness', float('nan')):.3f} |",
+            f"| Excess Kurtosis | {sr.get('excess_kurtosis', float('nan')):.3f} |",
+        ]
+        if "dsr" in sr:
+            sig_lines += [
+                f"| Deflated Sharpe Ratio | {sr.get('dsr', float('nan')):.4f} |",
+                "| DSR significant (95%) | "
+                f"{'Yes ✓' if sr.get('dsr_significant') else 'No ✗'} |",
+                f"| Min required SR* | {sr.get('sr_star', float('nan')):.4f} |",
+                f"| E[max SR | {sr.get('n_trials', 1)} trials]"
+                f" | {sr.get('expected_max_sharpe', float('nan')):.4f} |",
+            ]
+        sig_lines += [
+            "",
+            "- [significance.json](significance.json) — full significance report",
+            "",
+        ]
+        report_lines.extend(sig_lines)
 
     report_lines.extend(["", "## Charts", ""])
     for p in pngs:
