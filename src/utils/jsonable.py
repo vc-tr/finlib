@@ -11,7 +11,8 @@ import pandas as pd
 
 def to_jsonable(x: Any) -> Any:
     """
-    Recursively convert numpy/pandas scalars and containers to JSON-serializable types.
+    Recursively convert numpy/pandas scalars and containers to
+    JSON-serializable types.
 
     - str, int, float, bool, None: return as-is
     - numpy scalar (np.bool_, np.float64, etc.): return x.item()

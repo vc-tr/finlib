@@ -9,7 +9,6 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.pipeline.data_fetcher_yahoo import YahooDataFetcher
-from src.pipeline.data_fetcher_alpha import AlphaVantageDataFetcher
 
 @pytest.fixture
 def yahoo_fetcher():
@@ -41,10 +40,3 @@ def test_yahoo_retry_logic(monkeypatch, yahoo_fetcher):
     # Columns should be renamed
     assert "open" in df.columns and df["open"].iloc[0] == 1
 
-@pytest.mark.skip(reason="Alpha Vantage requires API key; column format may differ")
-def test_alpha_fetch_returns_dataframe():
-    """Integration test: requires ALPHA_VANTAGE_API_KEY env var."""
-    fetcher = AlphaVantageDataFetcher()
-    df = fetcher.fetch_ohlcv("SPY", "1min", outputsize="compact")
-    assert isinstance(df, pd.DataFrame)
-    assert set(df.columns) == {"open", "high", "low", "close", "volume"}

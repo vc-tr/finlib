@@ -95,12 +95,12 @@ def _compute_atr_pct(ohlcv_by_symbol: Dict[str, pd.DataFrame], window: int = 14)
     out = {}
     for sym, df in ohlcv_by_symbol.items():
         h = _get_col(df, ["high", "High"])
-        l = _get_col(df, ["low", "Low"])
+        liq = _get_col(df, ["low", "Low"])
         c = _get_col(df, ["close", "Close"])
-        if h is None or l is None or c is None:
+        if h is None or liq is None or c is None:
             continue
         prev_c = c.shift(1)
-        tr = pd.concat([h - l, (h - prev_c).abs(), (l - prev_c).abs()], axis=1).max(axis=1)
+        tr = pd.concat([h - liq, (h - prev_c).abs(), (liq - prev_c).abs()], axis=1).max(axis=1)
         atr = tr.rolling(window).mean()
         atr_pct = (atr / c).replace(0, np.nan)
         out[sym] = atr_pct
@@ -138,7 +138,6 @@ class FixedBpsCostModel(CostModel):
         fee_bps = config.get("fee_bps", 1.0)
         slippage_bps = config.get("slippage_bps", 2.0)
         spread_bps = config.get("spread_bps", 1.0)
-        total_bps = fee_bps + slippage_bps + spread_bps
 
         df = trades_df.copy()
         w = df["trade_weight"]
@@ -190,10 +189,10 @@ class LiquidityAwareCostModel(CostModel):
         impact_list = []
         spread_list = []
         for _, row in df.iterrows():
-            ts, sym, trade_weight, fill_price, trade_notional = (
-                row["timestamp"], row["symbol"], row["trade_weight"],
-                row["fill_price"], row["trade_notional"],
-            )
+            ts = row["timestamp"]
+            sym = row["symbol"]
+            trade_weight = row["trade_weight"]
+            trade_notional = row["trade_notional"]
             adv_val = np.nan
             if sym in adv.columns and ts in adv.index:
                 adv_val = adv.loc[ts, sym]

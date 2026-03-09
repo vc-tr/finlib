@@ -74,6 +74,6 @@ class RiskManager:
                 pos_val = abs(pos) * prices.get(sym, 0)
                 weight = pos_val / portfolio_value
                 if weight > self.max_single_weight:
-                    return False, f"symbol {sym} weight {weight:.2%} exceeds max_single_weight {self.max_single_weight:.2%}"
+                    return False, f"symbol {sym} weight {weight:.2%} exceeds max_single_weight {self.max_single_weight:.2%}"  # noqa: E501
 
         return True, ""

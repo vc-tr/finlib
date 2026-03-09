@@ -147,8 +147,8 @@ def _run_walkforward(
             ic_concat = ic_concat[~ic_concat.index.duplicated(keep="first")]
             ic_summary_wf[str(h)] = summarize_ic(ic_concat)
             ic_concat.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
-        ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on concatenated OOS test windows; no train data used."}
-        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")
+        ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on concatenated OOS test windows; no train data used."}  # noqa: E501
+        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")  # noqa: E501
     elif getattr(args, "report_ic", False) and "all_returns" in wf_result:
         fwd = forward_returns(prices_wide, horizons=ic_horizons)
         agg_ret = wf_result["all_returns"]
@@ -160,19 +160,19 @@ def _run_walkforward(
             ic_s = cross_sectional_ic(factor_test, fwd_h, method=ic_method)
             ic_s.to_csv(output_dir / f"ic_h{h}.csv", header=["ic"])
             ic_summary_wf[str(h)] = summarize_ic(ic_s)
-        ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on dates in concatenated OOS test windows."}
-        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")
+        ic_config = {"horizons": ic_horizons, "method": ic_method, "scope": "walkforward_test_windows_only", "note": "IC computed on dates in concatenated OOS test windows."}  # noqa: E501
+        (output_dir / "ic_summary.json").write_text(json.dumps(to_jsonable({"config": ic_config, "summary": ic_summary_wf}), indent=2), encoding="utf-8")  # noqa: E501
 
     summary = {"walkforward": True, "aggregated": agg, "per_fold": wf_result["per_fold"]}
     if "combo_weights_per_fold" in wf_result:
         summary["combo_weights_per_fold"] = wf_result["combo_weights_per_fold"]
-        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(wf_result["combo_weights_per_fold"]), indent=2), encoding="utf-8")
+        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(wf_result["combo_weights_per_fold"]), indent=2), encoding="utf-8")  # noqa: E501
         cw = wf_result["combo_weights_per_fold"]
         report_lines = [
             "# Walk-Forward Combo Report", "",
             "## Summary", "",
-            f"| Metric | Value |",
-            f"|--------|-------|",
+            "| Metric | Value |",
+            "|--------|-------|",
             f"| Mean Sharpe | {agg['mean_sharpe']:.2f} |",
             f"| Agg Sharpe | {agg['agg_sharpe']:.2f} |",
             f"| Agg Total Return | {agg['agg_total_return']:.2%} |",
@@ -181,8 +181,8 @@ def _run_walkforward(
         if args.combo_method == "auto_robust":
             report_lines.extend([
                 "## Auto-Robust Config", "",
-                f"| Setting | Value |",
-                f"|---------|-------|",
+                "| Setting | Value |",
+                "|---------|-------|",
                 f"| Selection metric | {getattr(args, 'auto_metric', 'val_ic_ir')} |",
                 f"| Val split | {getattr(args, 'val_split', 0.3)} |",
                 f"| Shrinkage | {getattr(args, 'shrinkage', 0.5)} |", "",
@@ -202,7 +202,7 @@ def _run_walkforward(
         if factor_names:
             w_df = pd.DataFrame([e["weights"] for e in cw]).fillna(0)
             avg_w, std_w = w_df.mean(), w_df.std()
-            report_lines.extend(["## Average Weights Across Folds", "", "| Factor | Mean | Std |", "|--------|------|-----|"])
+            report_lines.extend(["## Average Weights Across Folds", "", "| Factor | Mean | Std |", "|--------|------|-----|"])  # noqa: E501
             for f in factor_names:
                 report_lines.append(f"| {f} | {avg_w.get(f, 0):.4f} | {std_w.get(f, 0):.4f} |")
             report_lines.append("")
@@ -263,7 +263,7 @@ def _run_single(
     capacity_report = out[9] if len(out) > 9 else None
 
     if capacity_report:
-        (output_dir / "capacity_report.json").write_text(json.dumps(to_jsonable(capacity_report), indent=2), encoding="utf-8")
+        (output_dir / "capacity_report.json").write_text(json.dumps(to_jsonable(capacity_report), indent=2), encoding="utf-8")  # noqa: E501
 
     turnover_at_rb = turnover[turnover > 1e-10]
     avg_turnover_per_rebalance = turnover_at_rb.mean() if len(turnover_at_rb) > 0 else 0.0
@@ -282,7 +282,7 @@ def _run_single(
     print("-" * 50)
 
     if combo_weights:
-        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(combo_weights), indent=2), encoding="utf-8")
+        (output_dir / "combo_weights.json").write_text(json.dumps(to_jsonable(combo_weights), indent=2), encoding="utf-8")  # noqa: E501
 
     factor_attribution = None
     if combo_weights and zscored:
@@ -304,14 +304,14 @@ def _run_single(
             ex = exp_df[fname].dropna().reindex(port_ret.index).dropna()
             ret_aligned = port_ret.reindex(ex.index).fillna(0)
             corr = ex.corr(ret_aligned) if len(ex) >= 5 and ex.std() > 1e-12 else float("nan")
-            att[fname] = {"mean_exposure": float(ex.mean()), "std_exposure": float(ex.std()) if len(ex) > 1 else 0.0, "corr_with_returns": float(corr) if pd.notna(corr) else None}
+            att[fname] = {"mean_exposure": float(ex.mean()), "std_exposure": float(ex.std()) if len(ex) > 1 else 0.0, "corr_with_returns": float(corr) if pd.notna(corr) else None}  # noqa: E501
         factor_attribution = att
-        (output_dir / "factor_attribution.json").write_text(json.dumps(to_jsonable(factor_attribution), indent=2), encoding="utf-8")
+        (output_dir / "factor_attribution.json").write_text(json.dumps(to_jsonable(factor_attribution), indent=2), encoding="utf-8")  # noqa: E501
 
     ic_summary = None
     ic_preview = None
     if getattr(args, "report_ic", False):
-        ic_horizons = [int(x.strip()) for x in getattr(args, "ic_horizons", "1,5,21").split(",") if x.strip()] or [1, 5, 21]
+        ic_horizons = [int(x.strip()) for x in getattr(args, "ic_horizons", "1,5,21").split(",") if x.strip()] or [1, 5, 21]  # noqa: E501
         ic_method = getattr(args, "ic_method", "spearman")
         fwd = forward_returns(prices, horizons=ic_horizons)
         ic_summary = {}
@@ -322,7 +322,7 @@ def _run_single(
             ic_summary[str(h)] = summarize_ic(ic_series)
             ic_preview[str(h)] = ic_series.dropna().tail(10).tolist()
         (output_dir / "ic_summary.json").write_text(
-            json.dumps(to_jsonable({"config": {"horizons": ic_horizons, "method": ic_method, "scope": "full_backtest_window"}, "summary": ic_summary}), indent=2),
+            json.dumps(to_jsonable({"config": {"horizons": ic_horizons, "method": ic_method, "scope": "full_backtest_window"}, "summary": ic_summary}), indent=2),  # noqa: E501
             encoding="utf-8",
         )
 
@@ -336,7 +336,7 @@ def _run_single(
     print("[4/4] Writing tear-sheet...")
     prices_1d = prices.mean(axis=1)
     cmd_str = cmd or "python scripts/backtest_factors.py"
-    config = {"factor": args.factor, "universe": args.universe, "period": args.period, "interval": args.interval, "rebalance": args.rebalance, "top_k": args.top_k, "bottom_k": args.bottom_k, "cmd": cmd_str}
+    config = {"factor": args.factor, "universe": args.universe, "period": args.period, "interval": args.interval, "rebalance": args.rebalance, "top_k": args.top_k, "bottom_k": args.bottom_k, "cmd": cmd_str}  # noqa: E501
     if combo_weights:
         config["combo_weights"] = combo_weights
         config["combo"] = args.combo

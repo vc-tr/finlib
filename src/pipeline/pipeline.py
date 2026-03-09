@@ -22,10 +22,10 @@ def reindex_and_backfill(df: pd.DataFrame, freq: Optional[str] = None) -> pd.Dat
 
     # 2. reindex
     df_full = df.reindex(full_idx)
-    
+
     # After reindexing, filter for regular hours (09:30–16:00, Monday–Friday), will uncommented later
-    #df_full = df_full.between_time("09:30", "16:00")
-    #df_full = df_full[df_full.index.dayofweek < 5]  # 0=Monday, 4=Friday
+    # df_full = df_full.between_time("09:30", "16:00")
+    # df_full = df_full[df_full.index.dayofweek < 5]  # 0=Monday, 4=Friday
 
     # 3. ffill OHLC
     for col in ["open", "high", "low", "close"]:

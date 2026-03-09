@@ -2,9 +2,7 @@
 Cross-sectional ranking: factor values -> portfolio weights.
 """
 
-import numpy as np
 import pandas as pd
-from typing import Literal
 
 
 def cross_sectional_rank(

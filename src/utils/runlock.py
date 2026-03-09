@@ -13,7 +13,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 
 class RunLock:
@@ -31,7 +30,9 @@ class RunLock:
         self._acquired = False
 
     def __enter__(self) -> "RunLock":
-        deadline = time.monotonic() + self.timeout_s if self.timeout_s > 0 else 0
+        deadline = (
+            time.monotonic() + self.timeout_s if self.timeout_s > 0 else 0
+        )
         while self.lock_path.exists():
             if self.timeout_s == 0:
                 print(

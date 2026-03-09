@@ -1,6 +1,6 @@
 """Utility modules."""
 
-from .io import (
+from .io import (  # noqa: F401
     INTERVAL_PERIOD_CAP,
     cap_period_for_interval,
     fetch_universe_ohlcv,

@@ -198,9 +198,9 @@ def run_replay(
         max_dd = float(dd.min()) if len(dd) > 0 else 0.0
         turnover = 0.0
         if not blotter_df.empty and "quantity" in blotter_df.columns and "price" in blotter_df.columns:
-            turnover = float((blotter_df["quantity"].abs() * blotter_df["price"]).sum() / initial_cash) if initial_cash > 0 else 0
+            turnover = float((blotter_df["quantity"].abs() * blotter_df["price"]).sum() / initial_cash) if initial_cash > 0 else 0  # noqa: E501
         costs_total = 0.0
-        if not blotter_df.empty and "cost_bps" in blotter_df.columns and "quantity" in blotter_df.columns and "price" in blotter_df.columns:
+        if not blotter_df.empty and "cost_bps" in blotter_df.columns and "quantity" in blotter_df.columns and "price" in blotter_df.columns:  # noqa: E501
             costs_total = float((blotter_df["cost_bps"] / 10_000 * blotter_df["quantity"] * blotter_df["price"]).sum())
     else:
         total_return = 0.0
@@ -214,8 +214,8 @@ def run_replay(
         "",
         "## Summary",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Total Return | {total_return:.2%} |",
         f"| Sharpe Ratio | {sharpe:.2f} |",
         f"| Max Drawdown | {max_dd:.2%} |",

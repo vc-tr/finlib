@@ -6,7 +6,10 @@ Buys winners, sells losers. Uses past returns as signal.
 
 import numpy as np
 import pandas as pd
-from typing import Tuple
+from typing import Dict, List, Tuple
+
+from src.strategies.base import Strategy, StrategyMeta
+from src.strategies.registry import StrategyRegistry
 
 
 def _signals_to_position_with_hold(signals: pd.Series, min_hold_bars: int) -> pd.Series:
@@ -39,15 +42,16 @@ def _signals_to_position_with_hold(signals: pd.Series, min_hold_bars: int) -> pd
     return out
 
 
-class MomentumStrategy:
+@StrategyRegistry.register
+class MomentumStrategy(Strategy):
     """
     Momentum strategy based on lookback returns.
-    
+
     Signal = sign(return over lookback period)
-    Long when past return > 0, short when < 0.
+    Long when past return > threshold, short when < -threshold.
     Uses min_hold_bars to reduce churn (default 1 for daily, 5 for minute).
     """
-    
+
     def __init__(
         self,
         lookback: int = 20,
@@ -63,11 +67,22 @@ class MomentumStrategy:
         self.lookback = lookback
         self.threshold = threshold
         self.min_hold_bars = min_hold_bars
-    
+
+    def meta(self) -> StrategyMeta:
+        return StrategyMeta(
+            name="momentum",
+            category="stats",
+            source="Classic time-series momentum",
+            description="Long recent winners, short recent losers based on lookback returns",
+            hypothesis="Trend continuation — assets with positive recent returns keep outperforming",
+            expected_result="Positive OOS Sharpe on daily data; sensitive to lookback and costs",
+            tags=["trend", "momentum", "time-series"],
+        )
+
     def compute_momentum(self, prices: pd.Series) -> pd.Series:
         """Momentum = (price / price_n_lookback_ago) - 1"""
         return prices.pct_change(self.lookback)
-    
+
     def generate_signals(self, prices: pd.Series) -> pd.Series:
         """
         Generate raw signals: 1 = long, -1 = short, 0 = flat.
@@ -78,16 +93,22 @@ class MomentumStrategy:
         signals[mom > self.threshold] = 1
         signals[mom < -self.threshold] = -1
         return signals
-    
+
     def generate_positions(self, prices: pd.Series) -> pd.Series:
         """Generate position series with min_hold applied (use for backtest)."""
         raw = self.generate_signals(prices)
         return _signals_to_position_with_hold(raw, self.min_hold_bars)
-    
+
     def backtest_returns(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series]:
         """Returns (positions, strategy_returns). Positions have min_hold applied."""
         positions = self.generate_positions(prices)
         returns = prices.pct_change()
-        # Backtester expects positions[t]=pos during t+1; it will shift(1) internally
         strategy_returns = positions.shift(1).fillna(0) * returns
         return positions, strategy_returns
+
+    def parameter_grid(self) -> Dict[str, List]:
+        return {
+            "lookback": [5, 10, 20, 50],
+            "threshold": [0.0, 0.005, 0.01],
+            "min_hold_bars": [1, 5, 10],
+        }

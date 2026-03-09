@@ -7,7 +7,7 @@ Supports both rule-based strategies (signals) and model-based forecasts.
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Optional, Callable, Union
+from typing import Optional, Union
 
 from .execution import ExecutionConfig, apply_execution_realism
 
@@ -28,7 +28,7 @@ class BacktestResult:
 class Backtester:
     """
     Backtest strategy returns.
-    
+
     Assumes strategy_returns = signals * asset_returns (or direct strategy returns).
     """
 

@@ -7,7 +7,7 @@ Provides fee models, slippage, spread, execution delay, and trades dataframe.
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Tuple
 
 
 @dataclass

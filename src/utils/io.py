@@ -50,7 +50,9 @@ def make_output_dir(base: str = "output/runs", suffix: str = "") -> Path:
 class OHLCVFetcher(Protocol):
     """Protocol for fetchers with fetch_ohlcv(symbol, interval, period=...)."""
 
-    def fetch_ohlcv(self, symbol: str, interval: str, period: str = "5d") -> pd.DataFrame:
+    def fetch_ohlcv(
+        self, symbol: str, interval: str, period: str = "5d"
+    ) -> pd.DataFrame:
         ...
 
 
