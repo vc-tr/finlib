@@ -298,19 +298,19 @@ def run_daily(
         "",
         "## Order Summary",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Orders | {len(orders)} |",
         f"| Turnover | {turnover:.2%} |",
         f"| Expected Costs | ${expected_costs:,.2f} |",
         "",
         "## Risk Checks",
         "",
-        f"| Check | Value | Threshold | Pass |",
-        f"|-------|-------|-----------|------|",
+        "| Check | Value | Threshold | Pass |",
+        "|-------|-------|-----------|------|",
         f"| Gross | {gross_w:.2%} | {max_gross or 'N/A'} | {'✓' if not risk_checks['max_gross_breach'] else '✗'} |",
         f"| Net | {net_w:.2%} | {max_net or 'N/A'} | {'✓' if not risk_checks['max_net_breach'] else '✗'} |",
-        f"| Max Single | {max_single_w:.2%} | {max_position_weight or 'N/A'} | {'✓' if not risk_checks['max_position_breach'] else '✗'} |",
+        f"| Max Single | {max_single_w:.2%} | {max_position_weight or 'N/A'} | {'✓' if not risk_checks['max_position_breach'] else '✗'} |",  # noqa: E501
         f"| Beta | {beta_p:.2f} | ±{beta_threshold} | {'✓' if not risk_checks['beta_breach'] else '✗'} |",
         "",
     ])
@@ -320,7 +320,7 @@ def run_daily(
     if (
         apply
         and (is_rebalance_day or force_rebalance)
-        and not any([risk_checks["max_gross_breach"], risk_checks["max_net_breach"], risk_checks["max_position_breach"]])
+        and not any([risk_checks["max_gross_breach"], risk_checks["max_net_breach"], risk_checks["max_position_breach"]])  # noqa: E501
     ):
         state_path_resolved.parent.mkdir(parents=True, exist_ok=True)
         save_current_portfolio(state_path_resolved, new_cash, new_positions, str(asof.date()))

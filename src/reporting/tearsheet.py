@@ -11,12 +11,12 @@ from typing import Any, Dict, Optional, Union
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
 
-from src.backtest import BacktestResult
-from src.backtest.execution import compute_turnover
+from src.backtest import BacktestResult  # noqa: E402
+from src.backtest.execution import compute_turnover  # noqa: E402
 
 
 def _ensure_dir(path: Path) -> Path:
@@ -35,7 +35,6 @@ def _median_adv(capacity_report: Dict[str, Any]) -> float:
 
 def _generate_index_md(out: Path, config: Dict[str, Any]) -> None:
     """Generate INDEX.md landing page with quick links and reproduce command."""
-    parts = []
     factor = config.get("factor") or config.get("symbol") or "backtest"
     universe = config.get("universe", "")
     period = config.get("period", "")

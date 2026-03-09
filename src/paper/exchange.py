@@ -2,9 +2,9 @@
 Paper exchange: replays bars and fills orders with realistic execution.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 

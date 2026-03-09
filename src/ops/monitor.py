@@ -171,7 +171,7 @@ def run_monitor(
     run_dirs = _scan_runs(
         runs_dir, n, only_type=only_type, since_hours=since_hours, since_days=since_days
     )
-    rows = [ _run_metrics(d) for d in run_dirs ]
+    rows = [_run_metrics(d) for d in run_dirs]
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -201,16 +201,16 @@ def run_monitor(
 
         if turnover_applies_to == "all" or r["run_type"] in turnover_applies_to:
             if not (ignore_initial_deploy and r.get("state_bootstrap")) and r["turnover"] > turnover_threshold:
-                alerts.append({"run": run_name, "type": "turnover", "detail": f"turnover {r['turnover']:.2%} > {turnover_threshold:.2%}"})
+                alerts.append({"run": run_name, "type": "turnover", "detail": f"turnover {r['turnover']:.2%} > {turnover_threshold:.2%}"})  # noqa: E501
 
         if abs(r["beta"]) > beta_threshold:
-            alerts.append({"run": run_name, "type": "beta", "detail": f"|beta| {abs(r['beta']):.2f} > {beta_threshold}"})
+            alerts.append({"run": run_name, "type": "beta", "detail": f"|beta| {abs(r['beta']):.2f} > {beta_threshold}"})  # noqa: E501
 
     costs = [r["expected_costs"] for r in rows if r["expected_costs"] > 0]
     if len(costs) >= 2 and cost_spike_factor > 0:
         median_cost = float(np.median(costs[1:]))
         if median_cost > 0 and costs[0] > median_cost * cost_spike_factor:
-            alerts.append({"run": rows[0]["run_dir"], "type": "cost_spike", "detail": f"costs ${costs[0]:,.0f} vs median ${median_cost:,.0f}"})
+            alerts.append({"run": rows[0]["run_dir"], "type": "cost_spike", "detail": f"costs ${costs[0]:,.0f} vs median ${median_cost:,.0f}"})  # noqa: E501
 
     report_lines = [
         "# Monitor Report",
@@ -223,7 +223,7 @@ def run_monitor(
         "|-----|------|-------|--------|----------|-------|------|",
     ]
     for r in rows:
-        report_lines.append(f"| {r['run_dir']} | {r['run_type']} | {r['asof']} | {r['n_orders']} | {r['turnover']:.2%} | ${r['expected_costs']:,.0f} | {r['beta']:.2f} |")
+        report_lines.append(f"| {r['run_dir']} | {r['run_type']} | {r['asof']} | {r['n_orders']} | {r['turnover']:.2%} | ${r['expected_costs']:,.0f} | {r['beta']:.2f} |")  # noqa: E501
     report_lines.extend(["", "## Alerts", ""])
     if alerts:
         for a in alerts:

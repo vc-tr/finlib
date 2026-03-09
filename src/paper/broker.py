@@ -2,7 +2,7 @@
 Paper broker: holds cash/positions, submits orders, tracks PnL.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -151,7 +151,7 @@ class PaperBroker:
         """Blotter as DataFrame."""
         if not self._blotter:
             return pd.DataFrame(
-                columns=["timestamp", "order_id", "symbol", "side", "quantity", "price", "cost_bps", "cash_impact", "position_after"]
+                columns=["timestamp", "order_id", "symbol", "side", "quantity", "price", "cost_bps", "cash_impact", "position_after"]  # noqa: E501
             )
         return pd.DataFrame(
             [
@@ -168,7 +168,7 @@ class PaperBroker:
                 )
                 for r in self._blotter
             ],
-            columns=["timestamp", "order_id", "symbol", "side", "quantity", "price", "cost_bps", "cash_impact", "position_after"],
+            columns=["timestamp", "order_id", "symbol", "side", "quantity", "price", "cost_bps", "cash_impact", "position_after"],  # noqa: E501
         )
 
     def equity_curve_df(self) -> pd.DataFrame:

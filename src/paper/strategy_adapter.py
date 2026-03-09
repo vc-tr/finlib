@@ -11,7 +11,7 @@ import pandas as pd
 from src.factors import compute_factor, compute_factors
 from src.factors.factors import get_prices_wide
 from src.factors.ensemble import combine_factors
-from src.factors.portfolio import rebalance_dates, weights_at_rebalance
+from src.factors.portfolio import weights_at_rebalance
 
 
 def get_factor_target_weights(

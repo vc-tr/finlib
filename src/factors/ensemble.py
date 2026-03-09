@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 from typing import Any, Dict, Literal, Optional
 
-from .portfolio import build_portfolio, weights_at_rebalance
+from .portfolio import weights_at_rebalance
 from .research import cross_sectional_ic, forward_returns, summarize_ic
 from .weight_learning import apply_shrinkage, learn_weights_ic, learn_weights_ridge, learn_weights_sharpe
 
@@ -255,7 +255,6 @@ def combine_factors(
                 if cand == "equal":
                     c, w, z = _combine_one(aligned, names, "equal", None)
                 elif cand == "ic_weighted":
-                    ts_sub = slice(train_sub_idx[0], train_sub_idx[-1])
                     c, w, z = _combine_one(
                         aligned, names, "ic_weighted", train_sub_idx,
                         fwd_returns_dict=fwd_returns_dict,

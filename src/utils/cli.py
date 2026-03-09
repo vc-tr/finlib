@@ -3,7 +3,6 @@ Shared argparse builders for CLI scripts.
 """
 
 import argparse
-from pathlib import Path
 
 from src.factors import UniverseRegistry
 
@@ -11,10 +10,10 @@ from src.factors import UniverseRegistry
 def build_factors_parser(description: str = "Cross-sectional factor backtest") -> argparse.ArgumentParser:
     """Build parser for factor backtest / replay / daily (shared args)."""
     p = argparse.ArgumentParser(description=description)
-    p.add_argument("--universe", default="liquid_etfs", help=f"Universe (choices: {', '.join(UniverseRegistry.list_names())})")
+    p.add_argument("--universe", default="liquid_etfs", help=f"Universe (choices: {', '.join(UniverseRegistry.list_names())})")  # noqa: E501
     p.add_argument("--factor", default="momentum_12_1", choices=["momentum_12_1", "reversal_5d", "lowvol_20d", "combo"])
-    p.add_argument("--combo", default=None, help='Comma-separated factors (e.g. "momentum_12_1,reversal_5d,lowvol_20d")')
-    p.add_argument("--combo-method", default="equal", choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"])
+    p.add_argument("--combo", default=None, help='Comma-separated factors (e.g. "momentum_12_1,reversal_5d,lowvol_20d")')  # noqa: E501
+    p.add_argument("--combo-method", default="equal", choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"])  # noqa: E501
     p.add_argument("--rebalance", default="M", choices=["D", "W", "M"])
     p.add_argument("--top-k", type=int, default=10)
     p.add_argument("--bottom-k", type=int, default=10)
@@ -59,11 +58,11 @@ def build_daily_parser() -> argparse.ArgumentParser:
 def build_backtest_factors_parser() -> argparse.ArgumentParser:
     """Build full parser for backtest_factors.py."""
     p = argparse.ArgumentParser(description="Cross-sectional factor backtest")
-    p.add_argument("--universe", default="liquid_etfs", help=f"Universe (choices: {', '.join(UniverseRegistry.list_names())})")
+    p.add_argument("--universe", default="liquid_etfs", help=f"Universe (choices: {', '.join(UniverseRegistry.list_names())})")  # noqa: E501
     p.add_argument("--list-universes", action="store_true", help="List universes and exit")
     p.add_argument("--factor", default="momentum_12_1", choices=["momentum_12_1", "reversal_5d", "lowvol_20d", "combo"])
     p.add_argument("--combo", default=None)
-    p.add_argument("--combo-method", default="equal", choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"])
+    p.add_argument("--combo-method", default="equal", choices=["equal", "ic_weighted", "ridge", "sharpe_opt", "auto", "auto_robust"])  # noqa: E501
     p.add_argument("--auto-metric", default="val_ic_ir", choices=["val_sharpe", "val_ic_ir"])
     p.add_argument("--val-split", type=float, default=0.3)
     p.add_argument("--shrinkage", type=float, default=0.5)

@@ -6,7 +6,6 @@ Rolling beta via covariance/variance (no new deps).
 
 import numpy as np
 import pandas as pd
-from typing import Optional
 
 
 def estimate_beta(

@@ -2,10 +2,10 @@
 Order types and status for paper trading.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Literal, Optional
+from typing import Optional
 
 
 class OrderSide(str, Enum):
