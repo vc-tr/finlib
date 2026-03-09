@@ -31,7 +31,7 @@ jobs:
     - name: Run tests
       run: |
         pip install pytest
-        pytest tests/test_strategies.py tests/test_execution.py tests/test_data_fetcher.py tests/test_pipeline.py tests/test_features.py --maxfail=1 -q -x
+        pytest tests/ --maxfail=3 -q
 
     - name: Demo smoke test
       run: |

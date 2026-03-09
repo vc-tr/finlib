@@ -1,11 +1,24 @@
 """
-Quantitative finance strategies.
+Quant Lab strategy library.
 
-Submodules:
-- stats: Mean reversion, pairs trading, momentum
+Subpackages:
+- stats:        Core statistical strategies (momentum, mean reversion, pairs trading)
+- retail:       Retail/technical strategies — YouTube/TikTok guru debunking
+- academic:     Research paper replications with proper citations
+- econophysics: Physics-inspired quantitative approaches
+
+All strategies inherit from Strategy (base.py) and self-register via
+@StrategyRegistry.register on import.
 """
 
+from src.strategies.base import Strategy, StrategyMeta
+from src.strategies.registry import StrategyRegistry
+
 __all__ = [
+    "Strategy",
+    "StrategyMeta",
+    "StrategyRegistry",
+    # Legacy names — lazy-loaded for backward compatibility
     "MeanReversionStrategy",
     "PairsTradingStrategy",
     "MomentumStrategy",
@@ -13,14 +26,14 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Lazy imports."""
+    """Lazy imports for backward compatibility."""
+    if name == "MomentumStrategy":
+        from src.strategies.stats.momentum import MomentumStrategy
+        return MomentumStrategy
     if name == "MeanReversionStrategy":
-        from .stats.mean_reversion import MeanReversionStrategy
+        from src.strategies.stats.mean_reversion import MeanReversionStrategy
         return MeanReversionStrategy
     if name == "PairsTradingStrategy":
-        from .stats.pairs_trading import PairsTradingStrategy
+        from src.strategies.stats.pairs_trading import PairsTradingStrategy
         return PairsTradingStrategy
-    if name == "MomentumStrategy":
-        from .stats.momentum import MomentumStrategy
-        return MomentumStrategy
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
