@@ -602,6 +602,38 @@ def generate_tearsheet(
     except Exception:
         pass
 
+    # Regime analysis
+    try:
+        from src.research.regimes import (
+            volatility_regimes as _vol_reg,
+            hurst_regime as _hurst_reg,
+            conditional_performance as _cond_perf,
+            top_drawdowns as _top_dd,
+            format_regime_report as _fmt_reg,
+            regime_report_dict as _reg_dict,
+        )
+        vol_labels = _vol_reg(prices)
+        hurst_labels = _hurst_reg(prices)
+        vol_stats = _cond_perf(returns, vol_labels)
+        hurst_stats = _cond_perf(returns, hurst_labels)
+        drawdowns = _top_dd(returns, n=5)
+        regime_md = _fmt_reg(
+            vol_stats=vol_stats,
+            hurst_stats=hurst_stats,
+            drawdowns=drawdowns,
+        )
+        report_lines += ["", regime_md, ""]
+        reg_json = _reg_dict(
+            vol_stats=vol_stats,
+            hurst_stats=hurst_stats,
+            drawdowns=drawdowns,
+        )
+        (out / "regimes.json").write_text(
+            json.dumps(reg_json, indent=2, default=str), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
     report_lines.extend(["", "## Charts", ""])
     for p in pngs:
         if (out / f"{p}.png").exists():
