@@ -2,7 +2,7 @@
 """
 Research bundle: one command to generate a recruiter-friendly packet.
 
-Runs: daily demo, walk-forward, intraday demo, sweep. Writes INDEX.md and updates output/latest.
+Runs: daily demo, walk-forward, intraday demo. Writes INDEX.md and updates output/latest.
 
 Usage:
     python scripts/make_research_bundle.py --symbol SPY
@@ -73,32 +73,6 @@ def _run_walkforward(output_dir: Path, symbol: str, period: str, interval: str, 
         sys.argv = orig_argv
 
 
-def _run_sweep(output_dir: Path, symbol: str, period: str, interval: str, lookbacks: str, min_holds: str, decision_intervals: str) -> None:
-    """Invoke sweep_momentum logic with output_dir."""
-    argv = [
-        "sweep_momentum",
-        "--symbol", symbol,
-        "--period", period,
-        "--interval", interval,
-        "--lookbacks", lookbacks,
-        "--min_holds", min_holds,
-        "--decision_intervals", decision_intervals,
-        "--output-dir", str(output_dir),
-        "--no-lock",
-    ]
-    orig_argv = sys.argv
-    sys.argv = argv
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "sweep_momentum", Path(__file__).parent / "sweep_momentum.py"
-        )
-        sweep = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sweep)
-        sweep.main()
-    finally:
-        sys.argv = orig_argv
-
-
 def _read_summary(path: Path) -> dict:
     """Read JSON summary or return empty dict."""
     if path.exists():
@@ -159,12 +133,6 @@ def _write_index(run_dir: Path, configs: dict, summaries: dict) -> None:
         lines.append(f"- **Intraday demo:** Sharpe={sharpe}, Return={ret}")
         lines.append("")
 
-    # Sweep
-    sweep_csv = list((run_dir / "sweep").glob("*.csv")) if (run_dir / "sweep").exists() else []
-    if sweep_csv:
-        lines.append(f"- **Sweep:** {len(sweep_csv)} CSV(s)")
-        lines.append("")
-
     lines.extend([
         "## Links",
         "",
@@ -173,7 +141,6 @@ def _write_index(run_dir: Path, configs: dict, summaries: dict) -> None:
         "- [walkforward/WALKFORWARD_REPORT.md](walkforward/WALKFORWARD_REPORT.md)",
         "- [intraday_demo/REPORT.md](intraday_demo/REPORT.md)",
         "- [intraday_demo/tearsheet.html](intraday_demo/tearsheet.html)",
-        "- [sweep/momentum_results.csv](sweep/momentum_results.csv)",
         "",
     ])
 
@@ -235,25 +202,11 @@ def main() -> None:
     configs["intraday_demo"] = {"symbol": args.symbol, "period": "7d", "interval": "1m", "lookback": 50, "min_hold": 30, "decision_interval": 30}
     summaries["intraday_demo"] = _read_summary(intraday_dir / "summary.json")
 
-    # D) Sweep (tiny grid)
-    sweep_dir = run_dir / "sweep"
-    sweep_dir.mkdir(exist_ok=True)
-    print("[D] Sweep...")
-    _run_sweep(
-        sweep_dir,
-        args.symbol,
-        "7d",
-        "1m",
-        lookbacks="20,50",
-        min_holds="15,30",
-        decision_intervals="15,30",
-    )
-
-    # E) INDEX.md
-    print("[E] Writing INDEX.md...")
+    # D) INDEX.md
+    print("[D] Writing INDEX.md...")
     _write_index(run_dir, configs, summaries)
 
-    # F) Update output/latest
+    # E) Update output/latest
     latest_dir = Path("output") / "latest"
     if latest_dir.exists():
         shutil.rmtree(latest_dir)

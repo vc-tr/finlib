@@ -2,9 +2,9 @@
 import time
 import pandas as pd
 import yfinance as yf
-from .data_fetcher import DataFetcher
 
-class YahooDataFetcher(DataFetcher):
+
+class YahooDataFetcher:
     def __init__(self, max_retries: int = 3, retry_delay: float = 1.0):
         self.max_retries = max_retries
         self.retry_delay = retry_delay

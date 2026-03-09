@@ -101,4 +101,3 @@ def test_bundle_smoke_synthetic(tmp_path: Path, monkeypatch) -> None:
     assert (run_dir / "daily_demo" / "summary.json").exists()
     assert (run_dir / "walkforward" / "walkforward_summary.json").exists()
     assert (run_dir / "intraday_demo" / "summary.json").exists()
-    assert (run_dir / "sweep" / "momentum_results.csv").exists()
