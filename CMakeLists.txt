@@ -26,6 +26,10 @@ target_include_directories(qe PUBLIC include)
 enable_testing()
 add_subdirectory(tests)
 
+# Benchmarks
+add_executable(benchmarks benchmarks/benchmark_main.cpp)
+target_link_libraries(benchmarks PRIVATE qe)
+
 # Python bindings (optional, requires pybind11)
 option(BUILD_PYTHON "Build Python bindings" ON)
 if(BUILD_PYTHON)
