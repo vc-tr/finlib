@@ -1,0 +1,56 @@
+# Python virtual environment
+venv/
+env/
+.venv/
+.env
+
+# Python cache and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE files
+.vscode/
+.idea/
+.cursor/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env.local
+.env.production
+
+# Logs and experiment artifacts
+*.log
+.runlock
+runs/
+mlruns/
+figures/
+data/*.csv
+data/cache/
+data/state/
+*.parquet
+output/
+
+# Database files
+*.db
+*.sqlite3
+
+# Coverage reports
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Jupyter notebooks (project uses scripts, not notebooks)
+*.ipynb
+.ipynb_checkpoints/
+
+# Local-only (never commit)
+docs/RECRUITER_PITCH.md

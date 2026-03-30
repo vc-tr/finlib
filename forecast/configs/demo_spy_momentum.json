@@ -1,0 +1,11 @@
+{
+  "symbol": "SPY",
+  "period": "2y",
+  "interval": "1d",
+  "strategy": "momentum",
+  "strategy_params": {"lookback": 20},
+  "execution": {
+    "fee_bps": 5.0,
+    "slippage_bps": 5.0
+  }
+}
