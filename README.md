@@ -126,16 +126,6 @@ python scripts/replay_trade.py --strategy factors --factor combo --combo "moment
 
 ---
 
-## FAQ
-
-**Q: Why can't I run minute-bar backtests for 6 months?**
-A: Yahoo Finance restricts 1m data to ~7 days per request. Use daily data or a paid provider for longer history.
-
-**Q: Config-driven run?**
-A: `python scripts/run_demo.py --config configs/demo_spy_momentum.json`
-
----
-
 ## Documentation
 
 - [`docs/RESEARCH_METHOD.md`](docs/RESEARCH_METHOD.md) — Data assumptions, evaluation protocol, anti-lookahead guarantees
