@@ -1,0 +1,45 @@
+# === C++ (engine) ===
+build/
+.cache/
+compile_commands.json
+*.o
+*.a
+*.so
+*.dylib
+
+# === Python (forecast) ===
+venv/
+env/
+.venv/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+.runlock
+runs/
+mlruns/
+figures/
+data/*.csv
+data/cache/
+data/state/
+*.parquet
+output/
+*.db
+*.sqlite3
+htmlcov/
+.coverage
+.pytest_cache/
+*.ipynb
+.ipynb_checkpoints/
+
+# === Common ===
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.vscode/
+.idea/
+.cursor/
