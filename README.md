@@ -1,3 +1,43 @@
+## Project Structure
+
+```
+.
+├── engine/
+│   ├── CMakeLists.txt
+│   ├── include/qe/
+│   │   ├── core/          types, constants
+│   │   ├── math/          RNG, interpolation, root finding, linalg, statistics
+│   │   ├── models/        BS, Heston, SABR, Merton JD, CIR
+│   │   ├── instruments/   european, american (LSM), exotic (barrier, asian, lookback, basket)
+│   │   ├── processes/     GBM, SDE, discretization, correlation
+│   │   ├── montecarlo/    engine, convergence
+│   │   ├── greeks/        finite difference, pathwise, likelihood ratio
+│   │   ├── pde/           FDM solver (explicit, implicit, Crank-Nicolson)
+│   │   ├── curves/        yield curve
+│   │   ├── volatility/    implied vol, vol surface
+│   │   └── risk/          VaR, CVaR, stress testing, portfolio
+│   ├── src/               23 implementation files
+│   ├── tests/             18 Catch2 test suites
+│   ├── benchmarks/        performance benchmarks
+│   └── python/            pybind11 bindings
+│
+└── forecast/
+    ├── configs/            backtest configurations
+    ├── scripts/            entry points (run_demo, walkforward, factor backtest, paper trading)
+    ├── src/
+    │   ├── strategies/     signal generators (momentum, mean reversion, pairs trading)
+    │   ├── factors/        cross-sectional factors, ensemble, portfolio construction
+    │   ├── backtest/       engine, execution model, walk-forward validation
+    │   ├── pipeline/       data fetching (Yahoo Finance), preprocessing
+    │   ├── reporting/      tearsheet generation (HTML, PNG, markdown)
+    │   ├── paper/          event-driven paper trading (broker, exchange, risk)
+    │   ├── ops/            daily portfolio generation, monitoring
+    │   └── utils/          CLI, I/O, serialization
+    ├── tests/
+    └── requirements.txt
+
+---
+
 # quant-engine
 
 A quantitative finance monorepo combining a **zero-dependency C++ pricing engine** with a **Python research and backtesting platform**. The engine handles derivatives pricing, Greeks, risk analytics, and PDE solvers from scratch. The forecast platform provides strategy research, cross-sectional factor models, walk-forward validation, and paper trading — all with strict anti-lookahead guarantees.
@@ -299,43 +339,4 @@ cd forecast && pytest tests/ -v
 
 Tests cover: analytical accuracy, put-call parity, MC convergence, model limiting cases (Heston → BS as ξ→0), Greek consistency across three methods, risk metric properties, yield curve roundtripping, strategy signal correctness, and backtest anti-lookahead verification.
 
----
-
-## Project Structure
-
-```
-.
-├── engine/
-│   ├── CMakeLists.txt
-│   ├── include/qe/
-│   │   ├── core/          types, constants
-│   │   ├── math/          RNG, interpolation, root finding, linalg, statistics
-│   │   ├── models/        BS, Heston, SABR, Merton JD, CIR
-│   │   ├── instruments/   european, american (LSM), exotic (barrier, asian, lookback, basket)
-│   │   ├── processes/     GBM, SDE, discretization, correlation
-│   │   ├── montecarlo/    engine, convergence
-│   │   ├── greeks/        finite difference, pathwise, likelihood ratio
-│   │   ├── pde/           FDM solver (explicit, implicit, Crank-Nicolson)
-│   │   ├── curves/        yield curve
-│   │   ├── volatility/    implied vol, vol surface
-│   │   └── risk/          VaR, CVaR, stress testing, portfolio
-│   ├── src/               23 implementation files
-│   ├── tests/             18 Catch2 test suites
-│   ├── benchmarks/        performance benchmarks
-│   └── python/            pybind11 bindings
-│
-└── forecast/
-    ├── configs/            backtest configurations
-    ├── scripts/            entry points (run_demo, walkforward, factor backtest, paper trading)
-    ├── src/
-    │   ├── strategies/     signal generators (momentum, mean reversion, pairs trading)
-    │   ├── factors/        cross-sectional factors, ensemble, portfolio construction
-    │   ├── backtest/       engine, execution model, walk-forward validation
-    │   ├── pipeline/       data fetching (Yahoo Finance), preprocessing
-    │   ├── reporting/      tearsheet generation (HTML, PNG, markdown)
-    │   ├── paper/          event-driven paper trading (broker, exchange, risk)
-    │   ├── ops/            daily portfolio generation, monitoring
-    │   └── utils/          CLI, I/O, serialization
-    ├── tests/
-    └── requirements.txt
 ```
