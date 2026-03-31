@@ -37,7 +37,7 @@
     └── requirements.txt
 
 ---
-
+```
 # quant-engine
 
 A quantitative finance monorepo combining a **zero-dependency C++ pricing engine** with a **Python research and backtesting platform**. The engine handles derivatives pricing, Greeks, risk analytics, and PDE solvers from scratch. The forecast platform provides strategy research, cross-sectional factor models, walk-forward validation, and paper trading — all with strict anti-lookahead guarantees.
