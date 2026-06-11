@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  engine:
+    name: engine — C++ build + Catch2 tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Release)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --parallel
+      - name: Test (ctest)
+        run: ctest --test-dir build --output-on-failure
+
+  forecast:
+    name: forecast — lint + unit tests + smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forecast
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt flake8 pytest
+      - name: Lint (flake8)
+        run: flake8 src/
+      - name: Unit tests
+        run: pytest tests/ -q --maxfail=3
+      - name: Smoke test (offline, deterministic)
+        run: python scripts/run_ml_demo.py --strategy ml_logistic --synthetic
+
+  forecast-ml:
+    name: forecast — PyTorch ML path
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forecast
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies (with torch)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-ml.txt pytest
+      - name: ML tests (incl. LSTM)
+        run: pytest tests/test_ml_features.py tests/test_ml_walkforward.py tests/test_ml_strategies.py tests/test_ml_lstm.py -q
+      - name: ML smoke test (LSTM, offline)
+        run: python scripts/run_ml_demo.py --strategy ml_lstm --synthetic --retrain-every 300

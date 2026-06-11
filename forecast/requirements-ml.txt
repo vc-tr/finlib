@@ -1,0 +1,5 @@
+# Optional ML extras for the deep-learning strategy (ml_lstm).
+# The rule-based and scikit-learn strategies run on the core requirements.txt;
+# only the PyTorch LSTM needs this. Install with:
+#   pip install -r requirements.txt -r requirements-ml.txt
+torch>=2.0

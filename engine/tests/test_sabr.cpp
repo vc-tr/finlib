@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "qe/models/sabr.hpp"
 #include "qe/models/black_scholes.hpp"

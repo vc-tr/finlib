@@ -1,6 +1,7 @@
 #pragma once
 
 #include "qe/core/types.hpp"
+#include <cmath>
 
 namespace qe {
 

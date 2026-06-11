@@ -1,6 +1,7 @@
 #pragma once
 
 #include "qe/core/types.hpp"
+#include <cmath>
 #include "qe/instruments/option.hpp"
 #include "qe/models/black_scholes.hpp"
 

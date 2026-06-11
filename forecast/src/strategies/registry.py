@@ -101,7 +101,7 @@ class StrategyRegistry:
         Called once at startup when the full registry is needed.
         """
         import importlib
-        for pkg in ("stats", "retail", "academic", "econophysics"):
+        for pkg in ("stats", "retail", "academic", "econophysics", "ml"):
             try:
                 importlib.import_module(f"src.strategies.{pkg}")
             except ModuleNotFoundError:
