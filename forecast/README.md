@@ -1,6 +1,6 @@
 # Quant Lab
 
-A quantitative research platform and **growing library of 20+ strategies** spanning retail trading lore, academic finance, and econophysics. Every strategy is tested with anti-lookahead execution, walk-forward out-of-sample validation, realistic costs, and Fama-French factor attribution. Strategies that fail are documented with analysis of why.
+A quantitative research platform and **library of 23 strategies** across five families — classical statistics, retail/technical lore, academic anomalies, econophysics, and **learned ML signals**. Every strategy runs through the same harness: anti-lookahead execution, walk-forward out-of-sample validation, realistic costs, and statistical-significance testing (deflated Sharpe). Strategies that fail are documented with analysis of why.
 
 Built for serious strategy research — not toy demos.
 
@@ -8,16 +8,17 @@ Built for serious strategy research — not toy demos.
 
 ## Strategy Catalog
 
-| Category | Strategy | Source | Status |
-|----------|----------|--------|--------|
-| `stats` | Momentum | Classic time-series momentum | ✅ |
-| `stats` | Mean Reversion | Z-score mean reversion | ✅ |
-| `stats` | Pairs Trading | Cointegration-based | ✅ |
-| `retail` | *(coming soon)* | YouTube/TikTok guru debunking | 🔜 |
-| `academic` | *(coming soon)* | Research paper replications | 🔜 |
-| `econophysics` | *(coming soon)* | Physics-inspired approaches | 🔜 |
+| Family | Count | Examples | Approach |
+|--------|-------|----------|----------|
+| `stats` | 3 | momentum, mean_reversion, pairs_trading | Classical statistical signals |
+| `retail` | 8 | golden_cross, macd_crossover, rsi_overbought, bollinger_breakout | Popular technical patterns, rigorously tested (most fail OOS) |
+| `academic` | 5 | time_series_momentum, betting_against_beta, post_earnings_drift | Peer-reviewed anomaly replications |
+| `econophysics` | 4 | hurst_exponent, ornstein_uhlenbeck, entropy_signal, power_law_tail | Physics-inspired models |
+| `ml` | 3 | ml_logistic, ml_gradient_boost, ml_lstm | **Walk-forward learned signals — leak-free by construction** |
 
-See [`docs/STRATEGY_RESULTS.md`](docs/STRATEGY_RESULTS.md) for full backtest results, factor attribution, and verdicts.
+`python scripts/run_strategy.py --list` prints the live catalog. See [`docs/STRATEGY_RESULTS.md`](docs/STRATEGY_RESULTS.md) for backtest results and verdicts, and [`docs/ML_MODELS.md`](docs/ML_MODELS.md) for the ML methodology.
+
+> The `ml_lstm` strategy needs PyTorch (`pip install -r requirements-ml.txt`); the other 22 strategies run on the core dependencies alone.
 
 ---
 
@@ -34,6 +35,9 @@ python scripts/backtest_factors.py --universe liquid_etfs --factor momentum_12_1
 
 # Walk-forward out-of-sample validation
 python scripts/walkforward_demo.py --symbol SPY --interval 1d --folds 6 --train-days 90 --test-days 30
+
+# Walk-forward ML signal vs buy-and-hold (sklearn; add -r requirements-ml.txt for ml_lstm)
+python scripts/run_ml_demo.py --strategy ml_gradient_boost --symbol SPY --period 8y
 ```
 
 **Smoke test** (~30 sec): `python scripts/run_demo.py --symbol SPY --period 30d`
@@ -60,13 +64,13 @@ After `run_demo`, check `output/`:
 
 ## Methodology
 
-- **No lookahead**: Signal at close `t` → fill at open `t+1`
+- **No lookahead**: Signal at close `t` → fill at open `t+1`; ML models retrain on **past data only**
 - **Walk-forward**: Rolling train/test splits; test window never used for calibration
 - **Realistic costs**: Configurable fees, slippage, spread (1–5 bps each); liquidity-aware impact model
-- **Statistical rigor**: Walk-forward Sharpe, IC/IR testing, out-of-sample validation
-- **Factor attribution**: *(coming)* Fama-French 5-factor decomposition for each strategy
+- **Statistical rigor**: Deflated Sharpe (Bailey & López de Prado 2014), Sharpe standard error (Lo 2002), IC/IR testing
+- **Factor attribution**: Fama-French 5-factor regression (α, t-stat, p-value) via the Kenneth French data library
 
-See [`docs/RESEARCH_METHOD.md`](docs/RESEARCH_METHOD.md) for full methodology.
+See [`docs/RESEARCH_METHOD.md`](docs/RESEARCH_METHOD.md) for full methodology and [`docs/ML_MODELS.md`](docs/ML_MODELS.md) for the ML approach.
 
 ---
 
@@ -82,11 +86,13 @@ Data (Yahoo) → Strategy / Factors → Execution (fees/slippage) → Backtester
 |--------|---------|
 | `src/backtest/` | Engine, execution config, cost models, walk-forward |
 | `src/factors/` | Cross-sectional factor research, universe registry, ensemble |
+| `src/ml/` | Causal features, walk-forward driver, sklearn + PyTorch direction models |
+| `src/research/` | Fama-French 5-factor attribution, deflated Sharpe, regime analysis |
 | `src/paper/` | Event-driven paper trading replay |
 | `src/ops/` | Daily portfolio generation, monitoring/alerts |
 | `src/pipeline/` | Yahoo data fetcher, preprocessing |
 | `src/reporting/` | HTML tearsheet + PNG charts |
-| `src/strategies/` | Strategy library (stats, retail, academic, econophysics) |
+| `src/strategies/` | Strategy library (stats, retail, academic, econophysics, ml) |
 | `src/utils/` | CLI parsers, I/O, RunLock, JSON serialization |
 
 ---
@@ -96,6 +102,8 @@ Data (Yahoo) → Strategy / Factors → Execution (fees/slippage) → Backtester
 | Script | Purpose |
 |--------|---------|
 | `run_demo.py` | Single-symbol demo: data → strategy → backtest → tearsheet |
+| `run_strategy.py` | Run any registered strategy (or a whole category) by name |
+| `run_ml_demo.py` | Walk-forward ML strategy vs buy-and-hold (sklearn / PyTorch) |
 | `walkforward_demo.py` | Rolling OOS validation |
 | `backtest_factors.py` | Cross-sectional factor backtest |
 | `replay_trade.py` | Event-driven paper trading |

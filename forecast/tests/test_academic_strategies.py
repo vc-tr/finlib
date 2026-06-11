@@ -260,6 +260,14 @@ def test_econophysics_meta_complete():
 
 
 def test_total_strategy_count():
-    """Ensure we have 20 total strategies registered."""
+    """20 rule-based + 2 sklearn ML strategies; +1 LSTM when torch is installed."""
+    from src.ml.torch_lstm import torch_available
+
     StrategyRegistry._load_all()
-    assert len(StrategyRegistry.names()) == 20
+    names = set(StrategyRegistry.names())
+
+    assert {"ml_logistic", "ml_gradient_boost"} <= names
+    expected = 22 + (1 if torch_available() else 0)
+    assert len(names) == expected
+    if torch_available():
+        assert "ml_lstm" in names

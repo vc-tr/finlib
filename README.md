@@ -1,5 +1,7 @@
 # quant-engine
 
+[![CI](https://github.com/vc-tr/finlib/actions/workflows/ci.yml/badge.svg)](https://github.com/vc-tr/finlib/actions/workflows/ci.yml)
+
 A quantitative finance monorepo combining a **zero-dependency C++ pricing engine** with a **Python research and backtesting platform**. The engine handles derivatives pricing, Greeks, risk analytics, and PDE solvers from scratch. The forecast platform provides strategy research, cross-sectional factor models, walk-forward validation, and paper trading — all with strict anti-lookahead guarantees.
 
 ```
@@ -183,7 +185,19 @@ class Strategy:
 | Carry Trade | Yield | +0.44 | Weak after costs |
 | Pairs Trading | Stat arb | N/A | Requires multi-asset universe |
 
-Statistical significance tested via **Deflated Sharpe Ratio** (corrects for multiple testing across N strategies).
+Statistical significance tested via **Deflated Sharpe Ratio** (Bailey & López de Prado, 2014; corrects for multiple testing across N strategies) and **Fama-French 5-factor attribution** (α, t-stat, p-value).
+
+### Learned Signals (ML)
+
+Three ML strategies share the same backtester and **leak-free walk-forward** harness as the rule-based ones — models retrain on past data only, and a training row is dropped whenever its forward-looking label could overlap the prediction point:
+
+| Strategy | Model | Dependency |
+|----------|-------|------------|
+| `ml_logistic` | L2 logistic regression on causal features | core |
+| `ml_gradient_boost` | Gradient-boosted trees | core |
+| `ml_lstm` | PyTorch LSTM — Adam, gradient clipping, LR scheduling, early stopping | `requirements-ml.txt` |
+
+Anti-lookahead is **tested, not assumed**: perturbing future prices must leave every earlier signal bit-for-bit identical. See [`forecast/docs/ML_MODELS.md`](forecast/docs/ML_MODELS.md).
 
 ### Cross-Sectional Factors
 
@@ -284,6 +298,7 @@ numpy>=2.0        pandas>=2.0       scipy>=1.10
 statsmodels>=0.14  scikit-learn>=1.3  yfinance>=0.2
 matplotlib>=3.7    seaborn>=0.12     pytest>=7.0
 ```
+Optional (for the `ml_lstm` deep-learning strategy): `torch>=2.0` — see [`forecast/requirements-ml.txt`](forecast/requirements-ml.txt).
 
 ---
 
@@ -293,11 +308,13 @@ matplotlib>=3.7    seaborn>=0.12     pytest>=7.0
 # Engine — 18 Catch2 test suites, 100+ test cases
 cd engine/build && ctest --output-on-failure
 
-# Forecast
+# Forecast — 268 pytest tests
 cd forecast && pytest tests/ -v
 ```
 
-Tests cover: analytical accuracy, put-call parity, MC convergence, model limiting cases (Heston → BS as ξ→0), Greek consistency across three methods, risk metric properties, yield curve roundtripping, strategy signal correctness, and backtest anti-lookahead verification.
+Both suites run in CI on every push via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (engine build + ctest; forecast lint + tests; a PyTorch-enabled ML job; offline smoke tests).
+
+Tests cover: analytical accuracy, put-call parity, MC convergence, model limiting cases (Heston → BS as ξ→0), Greek consistency across three methods, risk metric properties, yield curve roundtripping, strategy signal correctness, backtest anti-lookahead verification, and **ML leak-free walk-forward checks** (perturbing the future must not change past signals).
 
 ---
 
@@ -328,9 +345,11 @@ Tests cover: analytical accuracy, put-call parity, MC convergence, model limitin
     ├── configs/            backtest configurations
     ├── scripts/            entry points (run_demo, walkforward, factor backtest, paper trading)
     ├── src/
-    │   ├── strategies/     signal generators (momentum, mean reversion, pairs trading)
+    │   ├── strategies/     23 signals across stats/retail/academic/econophysics/ml
+    │   ├── ml/             causal features, walk-forward driver, sklearn + PyTorch models
     │   ├── factors/        cross-sectional factors, ensemble, portfolio construction
     │   ├── backtest/       engine, execution model, walk-forward validation
+    │   ├── research/       Fama-French attribution, deflated Sharpe, regimes
     │   ├── pipeline/       data fetching (Yahoo Finance), preprocessing
     │   ├── reporting/      tearsheet generation (HTML, PNG, markdown)
     │   ├── paper/          event-driven paper trading (broker, exchange, risk)

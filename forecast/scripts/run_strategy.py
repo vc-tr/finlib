@@ -12,7 +12,7 @@ Usage:
     # All retail strategies
     python scripts/run_strategy.py --category retail --symbol SPY --period 5y
 
-    # All 20 strategies, comparison table
+    # All 23 strategies, comparison table
     python scripts/run_strategy.py --all --symbol SPY --period 5y --compare
 
     # List registered strategies
@@ -189,9 +189,9 @@ def main() -> None:
     )
     parser.add_argument("--strategy", "-s", help="Strategy name (e.g. golden_cross)")
     parser.add_argument("--category", "-c",
-                        help="Run all strategies in category (stats|retail|academic|econophysics)")
+                        help="Run all strategies in category (stats|retail|academic|econophysics|ml)")
     parser.add_argument("--all", "-a", action="store_true",
-                        help="Run all 20 registered strategies")
+                        help="Run all registered strategies")
     parser.add_argument("--list", "-l", action="store_true",
                         help="List registered strategies and exit")
     parser.add_argument("--symbol", default="SPY", help="Ticker symbol (default: SPY)")
